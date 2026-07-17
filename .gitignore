@@ -1,0 +1,9 @@
+output/
+.env
+__pycache__/
+*.pyc
+.venv/
+*.mp4
+*.wav
+*.mp3
+node_modules/
