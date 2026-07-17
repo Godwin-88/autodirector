@@ -1,0 +1,19 @@
+class {{ scene.scene_class_name }}(Scene):
+    def construct(self):
+        {% if scene.cite_string %}
+        src = cite("{{ scene.cite_string }}")
+        self.add(src)
+        {% endif %}
+        {% for tb in scene.text_blocks %}
+        {{ tb.id }} = Text("{{ tb.content }}", color={{ tb.color }}, font_size={{ tb.font_size }}{% if tb.weight == 'BOLD' %}, weight=BOLD{% endif %}{% if tb.slant == 'ITALIC' %}, slant=ITALIC{% endif %})
+        {% endfor %}
+        {% for eq in scene.equations %}
+        {{ eq.id }} = MathTex(r"{{ eq.latex }}", color={{ eq.color }}, font_size=36)
+        {% endfor %}
+        {% for step in scene.animation_sequence %}
+        {% if step.type == 'wait' %}
+        self.wait({{ step.duration_secs }})
+        {% else %}
+        self.play({{ step.type }}({{ step.target_id }}), run_time={{ step.duration_secs }})
+        {% endif %}
+        {% endfor %}

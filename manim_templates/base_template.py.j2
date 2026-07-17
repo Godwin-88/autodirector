@@ -1,0 +1,19 @@
+from manim import *
+import numpy as np
+from scipy.stats import norm
+
+{{ brand_constants }}
+
+{% for scene in scenes %}
+{{ scene.rendered_code }}
+
+{% endfor %}
+
+class FullEpisode(Scene):
+    def construct(self):
+        for SceneClass in [{% for scene in scenes %}{{ scene.scene_class_name }}, {% endfor %}]:
+            instance = SceneClass()
+            instance.camera = self.camera
+            instance.renderer = self.renderer
+            instance.construct()
+            self.wait(0.5)

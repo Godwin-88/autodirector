@@ -1,0 +1,31 @@
+class {{ scene.scene_class_name }}(Scene):
+    def construct(self):
+        {% if scene.cite_string %}
+        src = cite("{{ scene.cite_string }}")
+        self.add(src)
+        {% endif %}
+        {% if scene.axes_config %}
+        axes = Axes(
+            x_range=[{{ scene.axes_config.x_range[0] }}, {{ scene.axes_config.x_range[1] }}, {{ scene.axes_config.x_range[2] if scene.axes_config.x_range|length > 2 else 1 }}],
+            y_range=[{{ scene.axes_config.y_range[0] }}, {{ scene.axes_config.y_range[1] }}, {{ scene.axes_config.y_range[2] if scene.axes_config.y_range|length > 2 else 1 }}],
+            x_length={{ scene.axes_config.x_length }},
+            y_length={{ scene.axes_config.y_length }},
+            axis_config={"color": BLUE_NORM},
+            x_axis_config={"label": MathTex("{{ scene.axes_config.x_label }}")},
+            y_axis_config={"label": MathTex("{{ scene.axes_config.y_label }}")},
+        )
+        self.play(Create(axes), run_time=1.5)
+        {% endif %}
+        {% for eq in scene.equations %}
+        {{ eq.id }} = MathTex(r"{{ eq.latex }}", color={{ eq.color }}, font_size=36)
+        {% endfor %}
+        {% for tb in scene.text_blocks %}
+        {{ tb.id }} = Text("{{ tb.content }}", color={{ tb.color }}, font_size={{ tb.font_size }}{% if tb.weight == 'BOLD' %}, weight=BOLD{% endif %}{% if tb.slant == 'ITALIC' %}, slant=ITALIC{% endif %})
+        {% endfor %}
+        {% for step in scene.animation_sequence %}
+        {% if step.type == 'wait' %}
+        self.wait({{ step.duration_secs }})
+        {% else %}
+        self.play({{ step.type }}({{ step.target_id }}), run_time={{ step.duration_secs }})
+        {% endif %}
+        {% endfor %}
