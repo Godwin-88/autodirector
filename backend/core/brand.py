@@ -1,0 +1,27 @@
+"""QUANTIFAYA BRAND — Single source of truth for all brand constants."""
+
+# Color palette
+BG = "#0D1117"
+FG = "#E6EDF3"
+GOLD = "#F0B429"
+RED = "#FF4D4F"
+GREEN = "#52C41A"
+BLUE_NORM = "#4C9BE8"
+ORANGE = "#FF7A00"
+PURPLE = "#7C3AED"
+TEAL = "#00B8D9"
+
+# Typography
+FONT_FAMILY = "Fira Code"
+FONT_SIZE_TITLE = 48
+FONT_SIZE_BODY = 24
+FONT_SIZE_CITE = 13
+
+# Video
+TARGET_RESOLUTION = (1920, 1080)
+TARGET_FPS = 60
+BRAND_INTRO_DURATION = 5  # seconds
+BRAND_OUTRO_DURATION = 5  # seconds
+
+# Thumbnail
+THUMBNAIL_SIZE = (1280, 720)
