@@ -58,10 +58,11 @@ app.add_middleware(
 )
 
 # Include routers
-from api.routes import health, episodes, stream
+from api.routes import health, episodes, stream, sources
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(episodes.router, prefix="/api/v1/episodes", tags=["episodes"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["stream"])
+app.include_router(sources.router, tags=["sources"])
 
 
 @app.get("/")
