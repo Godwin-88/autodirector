@@ -7,6 +7,7 @@ import { WanPreview } from "@/components/WanPreview";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { ArchitectureTab } from "@/components/ArchitectureTab";
 import { EpisodeList } from "@/components/EpisodeList";
+import { SourceManager, EpisodeSourcePanel } from "@/components/SourceManager";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   createEpisode,
@@ -365,6 +366,7 @@ export default function App() {
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+                <TabsTrigger value="sources">Sources</TabsTrigger>
                 <TabsTrigger value="architecture">Architecture</TabsTrigger>
               </TabsList>
 
@@ -388,6 +390,11 @@ export default function App() {
                     />
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="sources">
+                <SourceManager />
+                {selectedId && <EpisodeSourcePanel episodeId={selectedId} />}
               </TabsContent>
 
               <TabsContent value="architecture">
