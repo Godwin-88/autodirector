@@ -1,9 +1,10 @@
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from schemas.episode_outline import EpisodeOutline
 from schemas.source import SourcesPackage, AcademicSource
 from services.intelligence.qwen_client import QwenClient, QWEN_MAX
 from services.intelligence.persona import QUANTIFAYA_PERSONA, PERSONA_SELF_REVIEW_CHECKLIST
+from services.intelligence.source_retriever import RetrievalPackage, SceneRetrievalResult
 from core.logging import get_logger
 
 logger = get_logger("script_generator")
@@ -23,7 +24,9 @@ Return JSON with structure:
       "scene_number": int,
       "scene_class": str,
       "voiceover_text": str,
-      "stage_directions": [str]
+      "stage_directions": [str],
+      "citations_used": [int],
+      "unverified_claims": [str]
     }
   ]
 }
@@ -31,10 +34,16 @@ Return JSON with structure:
 
 
 class ScriptGenerator:
-    def __init__(self, qwen: QwenClient):
+    def __init__(self, qwen: QwenClient, source_retriever: Optional['SourceRetriever'] = None):
         self.qwen = qwen
+        self.source_retriever = source_retriever
 
-    async def generate(self, outline: EpisodeOutline, sources: SourcesPackage) -> dict:
+    async def generate(
+        self,
+        outline: EpisodeOutline,
+        sources: SourcesPackage,
+        retrieval: Optional[RetrievalPackage] = None,
+    ) -> dict:
         sources_text = "\n".join(
             f"[{s.ref_number}] {s.authors} ({s.year}) '{s.title}' - {s.journal_or_publisher}"
             for s in sources.sources
@@ -48,6 +57,18 @@ class ScriptGenerator:
             for s in outline.scenes
         )
 
+        # Build the context block from retrieved sources
+        context_block = ""
+        if retrieval and retrieval.context_block:
+            context_block = retrieval.context_block
+        else:
+            context_block = (
+                "No verified source material was ingested for this episode. "
+                "You may use your training knowledge, but every factual claim must be "
+                "marked as [UNVERIFIED: claim description]. This helps the human reviewer "
+                "identify claims that need verification before publication."
+            )
+
         messages = [
             {"role": "system", "content": SCRIPT_SYSTEM_PROMPT},
             {"role": "user", "content": (
@@ -56,9 +77,14 @@ class ScriptGenerator:
                 f"SEO Title: {outline.seo_title}\n\n"
                 f"Available academic sources:\n{sources_text}\n\n"
                 f"Scene structure:\n{scenes_text}\n\n"
+                f"{context_block}\n\n"
                 "Write the complete script. Every scene must have voiceover_text and stage_directions. "
                 "Include [PAUSE] markers. Include *stage directions* in asterisks. "
-                "Quote Taleb at least once with exact source. End with a challenge question."
+                "Quote Taleb at least once with exact source. End with a challenge question.\n\n"
+                "CRITICAL: Every factual claim must cite a source from the VERIFIED SOURCE MATERIAL "
+                "using [N] notation. If the verified material does not cover a claim, you may use "
+                "your training knowledge BUT mark it: [UNVERIFIED: claim description]. "
+                "[UNVERIFIED] flags are shown to the human reviewer at the review gate."
             )},
         ]
 
@@ -73,6 +99,21 @@ class ScriptGenerator:
                 scene_num = fix.get("scene_number")
                 if scene_num:
                     data = await self._regenerate_scene(data, scene_num, fix.get("fix", ""))
+
+        # Aggregate unverified claims
+        unverified_claims = []
+        for scene in data.get("scenes", []):
+            claims = scene.get("unverified_claims", [])
+            if claims:
+                unverified_claims.extend(claims)
+
+        if unverified_claims:
+            logger.warning(
+                "script_contains_unverified_claims",
+                count=len(unverified_claims),
+                claims=unverified_claims,
+            )
+            data["unverified_claims"] = unverified_claims
 
         return data
 
