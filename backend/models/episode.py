@@ -27,6 +27,7 @@ class Episode(Base):
 
     scenes = relationship("Scene", back_populates="episode", cascade="all, delete-orphan")
     jobs = relationship("Job", back_populates="episode", cascade="all, delete-orphan")
+    source_links = relationship("EpisodeSource", back_populates="episode", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Episode(id={self.id}, topic='{self.topic[:50]}', status='{self.status}')>"

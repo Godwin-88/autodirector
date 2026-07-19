@@ -1216,3 +1216,64 @@ Assert: Thumbnail uploaded
 
 **Pass criteria:** All 7 steps pass. Total wall-clock time ≤ 60 minutes.
 ```
+tests 
+
+# How to Test Locally
+
+Your system is fully built but hasn't been started yet. Here's what I recommend to test it locally, in order:
+
+## Step 1: Ensure Docker infra is running
+PostgreSQL and Redis should already be running from earlier. Let me check:
+```bash
+docker ps
+```
+If they're not running, start them:
+```bash
+docker compose up -d postgres redis
+```
+
+## Step 2: Verify Alembic migration
+The DB tables should exist. If not:
+```bash
+cd backend && alembic upgrade head
+```
+
+## Step 3: Start the backend (terminal 1)
+The FastAPI server needs your Qwen API key from `.env`:
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn main:app --reload --port 8000
+```
+Then test with:
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/health/db
+curl http://localhost:8000/health/redis
+```
+
+## Step 4: Start the frontend (terminal 2)
+```bash
+cd frontend
+npm run dev
+```
+This starts on `http://localhost:3000` — it auto-proxies `/api` to the backend.
+
+## Step 5: Create a test episode
+```bash
+curl -X POST http://localhost:8000/api/v1/episodes \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "Why the Normal Distribution Fails in Finance", "episode_number": 1}'
+```
+Then open `http://localhost:3000` in a browser, select the episode, and watch the pipeline live.
+
+## What won't work without real API keys
+- **Qwen calls** (script gen, SEO) — need a valid `QWEN_API_KEY`
+- **Wan video** — `WAN_API_KEY` is `placeholder`
+- **YouTube upload** — no OAuth secrets
+
+The **unit tests** are safe to run anytime:
+```bash
+cd backend
+source .venv/bin/activate
+pytest tests/unit -v
