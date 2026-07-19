@@ -13,6 +13,9 @@ from services.intelligence.script_generator import ScriptGenerator
 from services.intelligence.manim_spec_generator import ManimSpecGenerator
 from services.intelligence.wan_prompt_generator import WanPromptGenerator
 from services.intelligence.seo_generator import SEOGenerator
+from services.intelligence.source_retriever import SourceRetriever
+from services.ingestion.embedder import ChunkEmbedder
+from services.ingestion.memgraph_client import MemgraphClient
 from services.generation.wan_client import WanClient
 from services.generation.wan_fallback import WanFallback
 from services.generation.manim_codegen import ManimCodeGenerator
@@ -32,7 +35,14 @@ logger = get_logger("orchestration.nodes")
 qwen = QwenClient()
 outline_gen = OutlineGenerator(qwen)
 source_extractor = SourceExtractor(qwen)
-script_gen = ScriptGenerator(qwen)
+embedder = ChunkEmbedder()
+memgraph = MemgraphClient()
+source_retriever = SourceRetriever(
+    db_session=None,  # Set at runtime via graph context
+    memgraph_client=memgraph,
+    embedder=embedder,
+)
+script_gen = ScriptGenerator(qwen, source_retriever=source_retriever)
 manim_spec_gen = ManimSpecGenerator(qwen)
 wan_prompt_gen = WanPromptGenerator(qwen)
 seo_gen = SEOGenerator(qwen)
@@ -67,7 +77,7 @@ async def analyze_topic(state: EpisodeState) -> EpisodeState:
 
 
 async def extract_sources(state: EpisodeState) -> EpisodeState:
-    """Node 2: Extract academic sources for each scene."""
+    """Node 2: Extract academic sources for each scene + run source retrieval."""
     logger.info("node:extract_sources")
     try:
         outline = EpisodeOutline(**state["outline"])
@@ -79,6 +89,26 @@ async def extract_sources(state: EpisodeState) -> EpisodeState:
             episode_topic=outline.topic,
             sources=all_sources,
         ).model_dump()
+
+        # Run source retrieval from ingested documents and Memgraph
+        try:
+            retrieval = await source_retriever.retrieve_for_episode(
+                topic=outline.topic,
+                outline=outline,
+                episode_id=state["episode_id"],
+                top_k=5,
+            )
+            state["retrieval_package"] = retrieval.model_dump()
+            state["has_real_sources"] = len(retrieval.vector_chunks) > 0
+            if state["has_real_sources"]:
+                logger.info(
+                    "source_retrieval_found_real_sources",
+                    count=retrieval.total_sources,
+                )
+        except Exception as e:
+            logger.warning("source_retrieval_failed", error=str(e))
+            state["has_real_sources"] = False
+
         state["current_phase"] = "sourced"
     except Exception as e:
         state["errors"].append(f"extract_sources: {e}")
@@ -86,12 +116,29 @@ async def extract_sources(state: EpisodeState) -> EpisodeState:
 
 
 async def generate_script(state: EpisodeState) -> EpisodeState:
-    """Node 3: Generate full episode script."""
+    """Node 3: Generate full episode script with source-grounded context."""
     logger.info("node:generate_script")
     try:
         outline = EpisodeOutline(**state["outline"])
         sources = SourcesPackage(**state["sources"])
-        script = await script_gen.generate(outline, sources)
+
+        # Build retrieval package from state if available
+        retrieval = None
+        if state.get("retrieval_package"):
+            from services.intelligence.source_retriever import RetrievalPackage
+            retrieval = RetrievalPackage(**state["retrieval_package"])
+
+        script = await script_gen.generate(outline, sources, retrieval=retrieval)
+
+        # Track unverified claims
+        unverified = script.get("unverified_claims", [])
+        if unverified:
+            logger.warning(
+                "script_has_unverified_claims",
+                count=len(unverified),
+            )
+            state["unverified_claims"] = unverified
+
         state["script"] = script
         state["current_phase"] = "scripted"
     except Exception as e:
