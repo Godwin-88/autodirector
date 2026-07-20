@@ -5,6 +5,8 @@ import { PipelineFlow } from "@/components/PipelineFlow";
 import { ScriptPreview } from "@/components/ScriptPreview";
 import { WanPreview } from "@/components/WanPreview";
 import { VideoPlayer } from "@/components/VideoPlayer";
+import { BeatEditor } from "@/components/BeatEditor";
+import { GraphSourcePanel } from "@/components/GraphSourcePanel";
 import { ArchitectureTab } from "@/components/ArchitectureTab";
 import { EpisodeList } from "@/components/EpisodeList";
 import { SourceManager, EpisodeSourcePanel } from "@/components/SourceManager";
@@ -370,6 +372,7 @@ export default function App() {
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+                <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="sources">Sources</TabsTrigger>
                 <TabsTrigger value="strategy">Strategy</TabsTrigger>
                 <TabsTrigger value="architecture">Architecture</TabsTrigger>
@@ -392,6 +395,24 @@ export default function App() {
                     <VideoPlayer
                       videoUrl={videoUrl}
                       isReady={videoReady}
+                    />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="details">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <div className="space-y-6">
+                    <BeatEditor
+                      scenes={scenes}
+                      streamingText={streamingText}
+                    />
+                  </div>
+                  <div className="space-y-6">
+                    <GraphSourcePanel
+                      episodeTopic={
+                        episodes.find((e) => e.id === selectedId)?.topic
+                      }
                     />
                   </div>
                 </div>
