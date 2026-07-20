@@ -1,10 +1,11 @@
 import json
 from typing import List, Dict, Any, Optional
 from schemas.episode_outline import EpisodeOutline
-from schemas.source import SourcesPackage, AcademicSource
+from schemas.source import SourcesPackage, AcademicSource, GraphRAGResult
 from services.intelligence.qwen_client import QwenClient, QWEN_MAX
 from services.intelligence.persona import QUANTIFAYA_PERSONA, PERSONA_SELF_REVIEW_CHECKLIST
 from services.intelligence.source_retriever import RetrievalPackage, SceneRetrievalResult
+from services.ingestion.memgraph_client import MemgraphClient
 from core.logging import get_logger
 
 logger = get_logger("script_generator")
@@ -30,13 +31,21 @@ Return JSON with structure:
     }
   ]
 }
+
+IMPORTANT — GraphRAG RULES:
+1. Equations tagged [GRAPH-VERIFIED: eq_name] are EXACT — use the LaTeX verbatim.
+2. Concepts listed under '=== MEMGRAPH KNOWLEDGE GRAPH ===' are verified by an academic knowledge base.
+3. If you use a graph-verified equation, mark it as [GRAPH-VERIFIED: eq_name] in the voiceover text.
+4. Claims not backed by either a VERIFIED SOURCE or the MEMGRAPH KNOWLEDGE GRAPH must be [UNVERIFIED: ...].
 """
 
 
 class ScriptGenerator:
-    def __init__(self, qwen: QwenClient, source_retriever: Optional['SourceRetriever'] = None):
+    def __init__(self, qwen: QwenClient, source_retriever: Optional['SourceRetriever'] = None,
+                 memgraph: Optional[MemgraphClient] = None):
         self.qwen = qwen
         self.source_retriever = source_retriever
+        self.memgraph = memgraph
 
     async def generate(
         self,
@@ -69,6 +78,31 @@ class ScriptGenerator:
                 "identify claims that need verification before publication."
             )
 
+        # ── GraphRAG Context Injection (Phase T) ──────────────────────
+        graphrag_block = ""
+        graphrag_concepts: List[str] = []
+        if self.memgraph and self.memgraph.enabled:
+            try:
+                # Retrieve knowledge graph context for the episode topic
+                graphrag_result = await self.memgraph.graphrag_retrieve(
+                    topic=outline.topic,
+                    scene_title=outline.seo_title or "",
+                )
+                if graphrag_result and graphrag_result.has_content():
+                    graphrag_block = graphrag_result.to_context_block()
+                    graphrag_concepts = graphrag_result.concept_names
+                    logger.info(
+                        "graphrag_context_injected",
+                        topic=outline.topic,
+                        concept_count=len(graphrag_concepts),
+                        equation_count=len(graphrag_result.equations),
+                    )
+            except Exception as e:
+                logger.warning("graphrag_retrieval_failed", topic=outline.topic, error=str(e))
+
+        # Store concepts for post-upload tagging
+        self._last_graphrag_concepts = graphrag_concepts
+
         messages = [
             {"role": "system", "content": SCRIPT_SYSTEM_PROMPT},
             {"role": "user", "content": (
@@ -78,6 +112,7 @@ class ScriptGenerator:
                 f"Available academic sources:\n{sources_text}\n\n"
                 f"Scene structure:\n{scenes_text}\n\n"
                 f"{context_block}\n\n"
+                f"{graphrag_block}\n\n"
                 "Write the complete script. Every scene must have voiceover_text and stage_directions. "
                 "Include [PAUSE] markers. Include *stage directions* in asterisks. "
                 "Quote Taleb at least once with exact source. End with a challenge question.\n\n"

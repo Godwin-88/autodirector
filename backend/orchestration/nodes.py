@@ -42,7 +42,7 @@ source_retriever = SourceRetriever(
     memgraph_client=memgraph,
     embedder=embedder,
 )
-script_gen = ScriptGenerator(qwen, source_retriever=source_retriever)
+script_gen = ScriptGenerator(qwen, source_retriever=source_retriever, memgraph=memgraph)
 manim_spec_gen = ManimSpecGenerator(qwen)
 wan_prompt_gen = WanPromptGenerator(qwen)
 seo_gen = SEOGenerator(qwen)
@@ -337,6 +337,25 @@ async def upload_youtube(state: EpisodeState) -> EpisodeState:
             state.get("youtube_channel_id", ""),
         )
         state["youtube_id"] = video_id
+
+        # ── Post-upload: Tag episode concepts in Memgraph ─────────────
+        if video_id and memgraph and memgraph.enabled:
+            try:
+                graphrag_concepts = getattr(script_gen, "_last_graphrag_concepts", [])
+                if graphrag_concepts:
+                    await memgraph.tag_episode_with_concepts(
+                        episode_id=state["episode_id"],
+                        episode_title=seo.youtube_title,
+                        concept_names=graphrag_concepts,
+                    )
+                    logger.info(
+                        "memgraph_episode_tagged",
+                        episode_id=state["episode_id"],
+                        concepts=graphrag_concepts,
+                    )
+            except Exception as e:
+                logger.warning("memgraph_tag_episode_failed", error=str(e))
+
         state["current_phase"] = "uploaded"
     except Exception as e:
         state["errors"].append(f"upload_youtube: {e}")
