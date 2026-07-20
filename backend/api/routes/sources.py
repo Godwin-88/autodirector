@@ -543,3 +543,23 @@ async def search_concepts(
         "query": request.query,
         "concepts": concepts,
     }
+
+
+# ── Smart Paste Endpoint ─────────────────────────────────────────────────
+
+
+class PasteRequest(BaseModel):
+    text: str
+    episode_id: Optional[str] = None
+
+
+@router.post("/paste", summary="Smart paste — classify and route pasted content")
+async def smart_paste(request: PasteRequest):
+    """
+    Accept pasted content (URL, DOI, arXiv ID, BibTeX, plain text),
+    classify it, and return the appropriate action for the frontend to execute.
+    """
+    from services.ingestion.paste_classifier import PasteClassifier
+    classifier = PasteClassifier()
+    result = await classifier.route(request.text, request.episode_id)
+    return result
