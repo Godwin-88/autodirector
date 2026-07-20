@@ -1,0 +1,97 @@
+# ── Sigmoid Curve Scene: {{ scene.scene_class_name }} ──
+# Generated from ManimSceneSpec with suggested_template="sigmoid_curve"
+# Narrative function: {{ scene.narrative_function }}
+# Beats: {{ scene.beats | length }}
+
+class {{ scene.scene_class_name }}(Scene):
+    """{{ scene.scene_title }} — sigmoid curve with tangent and labelled points."""
+
+    def construct(self):
+        {% if scene.cite_string %}
+        src = cite("{{ scene.cite_string }}")
+        self.play(FadeIn(src))
+        {% endif %}
+
+        # ── Persistent axes (stays across all beats) ──
+        ax = Axes(
+            x_range={{ scene.axes_config.x_range }},
+            y_range={{ scene.axes_config.y_range }},
+            x_length={{ scene.axes_config.x_length }},
+            y_length={{ scene.axes_config.y_length }},
+            axis_config={"color": FG},
+        )
+        ax_lbl = ax.get_axis_labels(
+            Tex("{{ scene.axes_config.x_label }}", color=FG, font_size=22),
+            Tex("{{ scene.axes_config.y_label }}", color=FG, font_size=22),
+        )
+        self.play(Create(ax), Write(ax_lbl))
+
+        {% for beat in scene.beats %}
+        # ── BEAT {{ beat.beat_id }}: {{ beat.function }} ──
+        {% for eq in scene.equations if eq.beat_id == beat.beat_id %}
+        eq_{{ eq.id }} = MathTex(r"{{ eq.latex }}", color={{ eq.color }}, font_size={{ eq.font_size }})
+        {% if eq.position == "center" %}
+        eq_{{ eq.id }}.center()
+        {% elif eq.position == "top" %}
+        eq_{{ eq.id }}.to_edge(UP)
+        {% elif eq.position == "bottom" %}
+        eq_{{ eq.id }}.to_edge(DOWN)
+        {% endif %}
+        self.play(Write(eq_{{ eq.id }}))
+        {% endfor %}
+
+        {% for tb in scene.text_blocks if tb.beat_id == beat.beat_id %}
+        tb_{{ tb.id }} = Text("{{ tb.content }}", color={{ tb.color }},
+                               font_size={{ tb.font_size }}, weight="{{ tb.weight }}",
+                               slant="{{ tb.slant }}")
+        {% if tb.position == "center" %}
+        tb_{{ tb.id }}.center()
+        {% elif tb.position == "top" %}
+        tb_{{ tb.id }}.to_edge(UP)
+        {% elif tb.position == "bottom" %}
+        tb_{{ tb.id }}.to_edge(DOWN)
+        {% endif %}
+        self.play(FadeIn(tb_{{ tb.id }}))
+        {% endfor %}
+
+        {% for curve in scene.curves if curve.beat_id == beat.beat_id %}
+        crv_{{ curve.id }} = ax.plot(
+            lambda s: {{ curve.function_description }},
+            x_range={{ curve.x_range or scene.axes_config.x_range }},
+            color={{ curve.color }}, stroke_width={{ curve.stroke_width }}
+        )
+        self.play(Create(crv_{{ curve.id }}))
+        {% endfor %}
+
+        {% for step in scene.animation_sequence if step.beat_id == beat.beat_id %}
+        {% if step.type == "wait" %}
+        self.wait({{ step.duration_secs }})
+        {% elif step.type == "FadeOut" %}
+        self.play(FadeOut({{ step.target_id }}))
+        {% elif step.type == "FadeIn" %}
+        self.play(FadeIn({{ step.target_id }}))
+        {% elif step.type == "Create" %}
+        self.play(Create({{ step.target_id }}))
+        {% elif step.type == "SurroundingRectangle" %}
+        rect_{{ step.step_number }} = SurroundingRectangle(
+            {{ step.target_id }}, color={{ step.notes or "GOLD" }},
+            buff=0.2, stroke_width=3
+        )
+        self.play(Create(rect_{{ step.step_number }}))
+        {% endif %}
+        {% endfor %}
+        {% endfor %}
+
+        {% if scene.visual_climax %}
+        # ── Visual climax: {{ scene.visual_climax.style }} ──
+        {% if scene.visual_climax.style == "pulse" %}
+        self.play(
+            {{ scene.visual_climax.target_ids[0] }}.animate.set_stroke(width=6),
+            run_time=0.4
+        )
+        self.play(
+            {{ scene.visual_climax.target_ids[0] }}.animate.set_stroke(width=3),
+            run_time=0.4
+        )
+        {% endif %}
+        {% endif %}

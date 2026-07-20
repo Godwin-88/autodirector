@@ -541,6 +541,26 @@ class MemgraphClient:
             concept_names=concept_names,
         )
 
+    # ── RAW QUERY EXECUTION (for source ingestion) ────────────────────
+
+    async def execute_query(self, query: str, params: Optional[dict] = None) -> None:
+        """Execute an arbitrary Cypher query against Memgraph.
+
+        Used by SourceExtractor to auto-ingest new Paper nodes and
+        BELONGS_TO relationships when a real source is discovered
+        that doesn't exist in the graph yet.
+
+        Gracefully handles disabled Memgraph or connection errors.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return
+        try:
+            async with driver.session() as session:
+                await session.run(query, params or {}, timeout=5)
+        except Exception as e:
+            logger.warning("Memgraph execute_query failed: %s", e)
+
     # ── CROSS-EPISODE LINKING ────────────────────────────────────────
 
     async def tag_episode_with_concepts(self, episode_id: str, episode_title: str,

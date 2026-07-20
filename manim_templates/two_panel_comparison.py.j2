@@ -1,0 +1,68 @@
+# ── Two-Panel Comparison Scene: {{ scene.scene_class_name }} ──
+# Suggested template: two_panel_comparison
+
+class {{ scene.scene_class_name }}(Scene):
+    """{{ scene.scene_title }} — side-by-side comparison with divider."""
+
+    def construct(self):
+        {% if scene.cite_string %}
+        src = cite("{{ scene.cite_string }}")
+        self.play(FadeIn(src))
+        {% endif %}
+
+        {% if scene.split_screen %}
+        # ── Split screen setup ──
+        divider = DashedLine(UP*3.5, DOWN*3.5, color=FG, stroke_opacity=0.3)
+        self.play(Create(divider))
+
+        {% if scene.split_screen.left_title %}
+        left_title = Text("{{ scene.split_screen.left_title }}", color=BLUE_NORM, font_size=22, weight=BOLD
+                         ).to_edge(LEFT).shift(RIGHT*2.5+UP*2)
+        self.play(FadeIn(left_title))
+        {% endif %}
+        {% if scene.split_screen.right_title %}
+        right_title = Text("{{ scene.split_screen.right_title }}", color=ORANGE, font_size=22, weight=BOLD
+                          ).to_edge(RIGHT).shift(LEFT*2.5+UP*2)
+        self.play(FadeIn(right_title))
+        {% endif %}
+        {% endif %}
+
+        {% for beat in scene.beats %}
+        # ── BEAT {{ beat.beat_id }}: {{ beat.function }} ──
+        {% for eq in scene.equations if eq.beat_id == beat.beat_id %}
+        eq_{{ eq.id }} = MathTex(r"{{ eq.latex }}", color={{ eq.color }}, font_size={{ eq.font_size }})
+        {% if eq.position == "left" %}
+        eq_{{ eq.id }}.to_edge(LEFT).shift(RIGHT*0.5+UP*0.5)
+        {% elif eq.position == "right" %}
+        eq_{{ eq.id }}.to_edge(RIGHT).shift(LEFT*0.5+UP*0.5)
+        {% else %}
+        eq_{{ eq.id }}.center()
+        {% endif %}
+        self.play(Write(eq_{{ eq.id }}))
+        {% endfor %}
+
+        {% for tb in scene.text_blocks if tb.beat_id == beat.beat_id %}
+        tb_{{ tb.id }} = Text("{{ tb.content }}", color={{ tb.color }},
+                               font_size={{ tb.font_size }}, weight="{{ tb.weight }}")
+        {% if tb.position == "left" %}
+        tb_{{ tb.id }}.to_edge(LEFT).shift(RIGHT*0.5+DOWN*0.5)
+        {% elif tb.position == "right" %}
+        tb_{{ tb.id }}.to_edge(RIGHT).shift(LEFT*0.5+DOWN*0.5)
+        {% else %}
+        tb_{{ tb.id }}.center()
+        {% endif %}
+        self.play(FadeIn(tb_{{ tb.id }}))
+        {% endfor %}
+
+        {% for step in scene.animation_sequence if step.beat_id == beat.beat_id %}
+        {% if step.type == "wait" %}
+        self.wait({{ step.duration_secs }})
+        {% elif step.type == "FadeOut" %}
+        self.play(FadeOut({{ step.target_id }}))
+        {% elif step.type == "FadeIn" %}
+        self.play(FadeIn({{ step.target_id }}))
+        {% elif step.type == "Create" %}
+        self.play(Create({{ step.target_id }}))
+        {% endif %}
+        {% endfor %}
+        {% endfor %}

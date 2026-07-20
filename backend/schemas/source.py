@@ -10,7 +10,8 @@ class AcademicSource(BaseModel):
     journal_or_publisher: str
     doi_or_url: str = ""
     scene_usage_note: str
-    confidence: str = "high"     # high|low — low = flagged for human review
+    confidence: str = "high"         # high|low — low = flagged for human review
+    graph_verified: bool = False     # NEW: True if cross-referenced against Memgraph
 
 
 class SourcesPackage(BaseModel):
@@ -62,6 +63,23 @@ class GraphRAGResult(BaseModel):
 
     def has_content(self) -> bool:
         return len(self.concepts) > 0
+
+    def get_verified_latex_for_concept(self, concept_name: str) -> Optional[str]:
+        """Return the verified LaTeX string for a concept, if it exists."""
+        for eq in self.equations:
+            if eq.concept_name.lower() == concept_name.lower():
+                return eq.latex
+        return None
+
+    def has_paper(self, authors: str, year: int, title: str) -> bool:
+        """Check if a paper exists in the graph's paper nodes (fuzzy match)."""
+        for p in self.papers:
+            if p.year == year and (
+                p.authors.lower()[:15] in authors.lower()
+                or authors.lower()[:15] in p.authors.lower()
+            ):
+                return True
+        return False
 
     def to_context_block(self) -> str:
         if not self.has_content():

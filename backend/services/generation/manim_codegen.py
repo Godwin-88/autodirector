@@ -32,6 +32,17 @@ TEMPLATE_MAP = {
     "axes_curve": "axes_curve.py.j2",
     "two_column": "two_column.py.j2",
     "quote_box": "quote_box.py.j2",
+    "sigmoid_curve": "sigmoid_curve.py.j2",
+    "two_panel_comparison": "two_panel_comparison.py.j2",
+    "spark_cancellation": "spark_cancellation.py.j2",
+    "animated_table": "animated_table.py.j2",
+    "time_acceleration": "time_acceleration.py.j2",
+    "pnl_attribution": "pnl_attribution.py.j2",
+    "side_by_side_integrals": "side_by_side_integrals.py.j2",
+    "qq_plot": "qq_plot.py.j2",
+    "multiplication_table": "multiplication_table.py.j2",
+    "numbered_list": "numbered_list.py.j2",
+    "narrative_beat_sequence": "narrative_beat_sequence.py.j2",
 }
 
 
