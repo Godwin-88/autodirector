@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     memgraph_user: str = ""
     memgraph_password: str = ""
     memgraph_enabled: bool = False
+    memgraph_concept_index: str = "conceptIndex"
+    memgraph_max_subgraph_depth: int = 3
+    memgraph_retrieval_limit: int = 10
 
     # Source Ingestion
     max_pdf_size_mb: int = 50

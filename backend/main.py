@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.database import get_engine
@@ -34,6 +34,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("redis_connection_failed", error=str(e))
 
+    # Connect Memgraph
+    from services.ingestion.memgraph_client import MemgraphClient
+    memgraph_client = MemgraphClient()
+    await memgraph_client.connect()
+    app.state.memgraph = memgraph_client
+
     logger.info("config", auto_approve=settings.auto_approve,
                 manim_workers=settings.manim_workers,
                 log_level=settings.log_level)
@@ -41,7 +47,13 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    await memgraph_client.close()
     logger.info("shutting_down")
+
+
+def get_memgraph(request: Request):
+    """FastAPI dependency for injecting MemgraphClient."""
+    return request.app.state.memgraph
 
 
 app = FastAPI(

@@ -1,251 +1,217 @@
 """
-Memgraph GraphRAG Client — Phase E of Source Intelligence Layer.
+Memgraph GraphRAG Client — Production implementation (Phase N).
 
-Queries the existing Memgraph quant finance knowledge graph for:
-  - Concept definitions and relationships
-  - Verified LaTeX equations
-  - Real paper citations (zero hallucination risk)
-  - Local subgraph for Manim visualisation
+Queries the actual Memgraph quant finance knowledge graph with schema:
+  - 7 node labels: Concept, Formula, Category, QuizQuestion, Strategy, Ticker, Regime
+  - 16 relationship types: BELONGS_TO, HAS_FORMULA, PREREQ_OF, DERIVED_FROM, etc.
+  - Concept properties: name, definition, category, difficulty, menu_context (optional)
+  - Formula properties: id, name, latex, expression, params (list), output
+  - No Paper nodes exist — citation retrieval is not possible from Memgraph alone
 
 Memgraph is Neo4j-compatible (uses Bolt protocol).
-Degrades gracefully when MEMGRAPH_ENABLED=false.
+All queries have 5-second timeouts. Degrades gracefully when MEMGRAPH_ENABLED=false.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
 from core.config import get_settings
+from schemas.source import GraphRAGResult, ConceptNode
 
 logger = logging.getLogger(__name__)
 
 
 class MemgraphClient:
     """
-    Queries the existing Memgraph quant finance knowledge graph.
+    Production Memgraph/Neo4j client for quant finance knowledge graph.
     Connection configured via MEMGRAPH_URI, MEMGRAPH_USER, MEMGRAPH_PASSWORD env vars.
     All methods return empty results when MEMGRAPH_ENABLED=false.
     """
 
     def __init__(self):
         self.settings = get_settings()
-        self.enabled = getattr(self.settings, "MEMGRAPH_ENABLED", False)
+        self.enabled = getattr(self.settings, "memgraph_enabled", False)
         self._driver = None
 
-    async def _get_driver(self):
-        """Lazy-initialize the Neo4j/Memgraph driver."""
+    async def connect(self):
+        """Initialize the Neo4j/Memgraph driver. Called once in FastAPI lifespan."""
         if not self.enabled:
-            return None
-        if self._driver is not None:
-            return self._driver
-
+            logger.info("Memgraph is disabled — skipping connection")
+            return
         try:
             from neo4j import AsyncGraphDatabase
 
-            uri = getattr(self.settings, "MEMGRAPH_URI", "bolt://localhost:7687")
-            user = getattr(self.settings, "MEMGRAPH_USER", "")
-            password = getattr(self.settings, "MEMGRAPH_PASSWORD", "")
+            uri = getattr(self.settings, "memgraph_uri", "bolt://localhost:7687")
+            user = getattr(self.settings, "memgraph_user", "")
+            password = getattr(self.settings, "memgraph_password", "")
 
             if user and password:
                 self._driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
             else:
                 self._driver = AsyncGraphDatabase.driver(uri)
 
+            await self._driver.verify_connectivity()
             logger.info("Connected to Memgraph at %s", uri)
-            return self._driver
         except ImportError:
             logger.warning("neo4j driver not installed, Memgraph unavailable")
             self.enabled = False
-            return None
         except Exception as e:
             logger.warning("Failed to connect to Memgraph: %s", e)
             self.enabled = False
+
+    async def close(self):
+        """Close the driver connection. Called once in FastAPI shutdown."""
+        if self._driver:
+            await self._driver.close()
+            self._driver = None
+            logger.info("Memgraph connection closed")
+
+    async def _get_driver(self):
+        """Lazy accessor for the driver. Returns None if disabled or not connected."""
+        if not self.enabled or self._driver is None:
             return None
+        return self._driver
 
-    async def health_check(self) -> bool:
-        """Check if Memgraph connection is alive."""
-        if not self.enabled:
-            return False
-        driver = await self._get_driver()
-        if not driver:
-            return False
-        try:
-            async with driver.session() as session:
-                result = await session.run("RETURN 1 AS alive")
-                record = await result.single()
-                return record is not None and record.get("alive") == 1
-        except Exception as e:
-            logger.warning("Memgraph health check failed: %s", e)
-            return False
+    # ── CONCEPT RETRIEVAL ────────────────────────────────────────────
 
-    async def query_concept(self, concept: str) -> dict:
+    async def find_concepts(self, query: str, limit: int = 10) -> List[ConceptNode]:
         """
-        Query a specific concept node with all its relationships.
-
-        MATCH (c:Concept {name: $concept})-[r]-(related)
-        RETURN c, type(r) as rel_type, related
+        Search concepts by name or definition using CONTAINS (no fulltext index available).
+        Falls back from exact name match to partial CONTAINS.
         """
-        if not self.enabled:
-            return {}
-
-        driver = await self._get_driver()
-        if not driver:
-            return {}
-
-        try:
-            async with driver.session() as session:
-                result = await session.run(
-                    """
-                    MATCH (c:Concept {name: $concept})-[r]-(related)
-                    RETURN c.name AS name, c.definition AS definition,
-                           c.equations AS equations,
-                           type(r) AS rel_type,
-                           related.name AS related_name,
-                           labels(related) AS related_labels
-                    """,
-                    concept=concept,
-                )
-                records = await result.fetch(100)
-
-                if not records:
-                    return {"found": False, "concept": concept}
-
-                concept_data = {
-                    "found": True,
-                    "name": records[0].get("name"),
-                    "definition": records[0].get("definition"),
-                    "equations": records[0].get("equations", []),
-                    "relationships": [],
-                }
-
-                for record in records:
-                    concept_data["relationships"].append({
-                        "type": record.get("rel_type"),
-                        "target_name": record.get("related_name"),
-                        "target_labels": record.get("related_labels", []),
-                    })
-
-                return concept_data
-        except Exception as e:
-            logger.warning("Memgraph query_concept failed for '%s': %s", concept, e)
-            return {"error": str(e), "concept": concept}
-
-    async def find_related_concepts(self, topic: str, limit: int = 10) -> List[dict]:
-        """
-        Full-text search or fuzzy match on concept names.
-
-        CALL db.index.fulltext.queryNodes("conceptIndex", $topic) YIELD node, score
-        RETURN node.name, node.definition, node.equations, score
-        """
-        if not self.enabled:
-            return []
-
         driver = await self._get_driver()
         if not driver:
             return []
 
         try:
             async with driver.session() as session:
-                # Try fulltext index first
-                try:
-                    result = await session.run(
-                        """
-                        CALL db.index.fulltext.queryNodes("conceptIndex", $topic)
-                        YIELD node, score
-                        RETURN node.name AS name, node.definition AS definition,
-                               node.equations AS equations, score
-                        ORDER BY score DESC
-                        LIMIT $limit
-                        """,
-                        topic=topic,
-                        limit=limit,
-                    )
-                    records = await result.fetch(limit)
-                    if records:
-                        return [
-                            {
-                                "name": r.get("name"),
-                                "definition": r.get("definition"),
-                                "equations": r.get("equations", []),
-                                "score": r.get("score"),
-                            }
-                            for r in records
-                        ]
-                except Exception:
-                    logger.info("Fulltext index not found, falling back to CONTAINS search")
-
-                # Fallback: CONTAINS search
+                # Try CONTAINS on name first (uses label+property index on category, not name)
                 result = await session.run(
                     """
                     MATCH (c:Concept)
-                    WHERE toLower(c.name) CONTAINS toLower($topic)
+                    WHERE toLower(c.name) CONTAINS toLower($query)
+                       OR toLower(c.definition) CONTAINS toLower($query)
                     RETURN c.name AS name, c.definition AS definition,
-                           c.equations AS equations
+                           c.category AS category, c.difficulty AS difficulty
                     LIMIT $limit
                     """,
-                    topic=topic,
+                    query=query,
                     limit=limit,
+                    timeout=5,
                 )
-                records = await result.fetch(limit)
+                records = await result.data()
+                return [
+                    ConceptNode(
+                        name=r.get("name", ""),
+                        definition=r.get("definition"),
+                        category=r.get("category"),
+                        difficulty=r.get("difficulty"),
+                        score=1.0,
+                    )
+                    for r in records
+                ]
+        except Exception as e:
+            logger.warning("Memgraph find_concepts failed for '%s': %s", query, e)
+            return []
+
+    async def get_concept_detail(self, concept_name: str) -> dict:
+        """
+        Full detail for a single concept: definition, category, formulas, related concepts,
+        prerequisites, strategies that use it, and regimes it activates.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return {}
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (c:Concept {name: $name})
+                    OPTIONAL MATCH (c)-[:HAS_FORMULA]->(f:Formula)
+                    OPTIONAL MATCH (c)-[:BELONGS_TO]->(cat:Category)
+                    OPTIONAL MATCH (c)-[:PREREQ_OF]->(next:Concept)
+                    OPTIONAL MATCH (prereq:Concept)-[:PREREQ_OF]->(c)
+                    OPTIONAL MATCH (c)<-[:DERIVED_FROM]-(s:Strategy)
+                    OPTIONAL MATCH (c)-[:ACTIVATED_BY]->(reg:Regime)
+                    RETURN c.name AS name,
+                           c.definition AS definition,
+                           c.category AS category,
+                           c.difficulty AS difficulty,
+                           cat.name AS category_name,
+                           cat.display AS category_display,
+                           collect(DISTINCT {
+                               id: f.id,
+                               name: f.name,
+                               latex: f.latex,
+                               expression: f.expression,
+                               params: f.params,
+                               output: f.output
+                           }) AS formulas,
+                           collect(DISTINCT next.name) AS teaches,
+                           collect(DISTINCT prereq.name) AS prerequisites,
+                           collect(DISTINCT {
+                               name: s.name,
+                               description: s.description,
+                               status: s.status
+                           }) AS strategies,
+                           collect(DISTINCT reg.name) AS regimes
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                record = await result.single()
+                return dict(record) if record else {}
+        except Exception as e:
+            logger.warning("Memgraph get_concept_detail failed for '%s': %s", concept_name, e)
+            return {}
+
+    # ── FORMULA (EQUATION) RETRIEVAL ─────────────────────────────────
+
+    async def get_concept_formulas(self, concept_name: str) -> List[dict]:
+        """
+        Get verified LaTeX formulas for a concept via :HAS_FORMULA relationship.
+        Formula nodes have: id, name, latex, expression, params (list), output.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (c:Concept {name: $concept})-[:HAS_FORMULA]->(f:Formula)
+                    RETURN f.id AS id, f.name AS name, f.latex AS latex,
+                           f.expression AS expression, f.params AS params,
+                           f.output AS output
+                    ORDER BY f.name
+                    """,
+                    concept=concept_name,
+                    timeout=5,
+                )
+                records = await result.data()
                 return [
                     {
+                        "id": r.get("id"),
                         "name": r.get("name"),
-                        "definition": r.get("definition"),
-                        "equations": r.get("equations", []),
-                        "score": 1.0,
-                    }
-                    for r in records
-                ]
-        except Exception as e:
-            logger.warning("Memgraph find_related_concepts failed for '%s': %s", topic, e)
-            return []
-
-    async def get_concept_equations(self, concept: str) -> List[dict]:
-        """
-        Get verified LaTeX equations for a concept.
-
-        MATCH (c:Concept {name: $concept})-[:HAS_EQUATION]->(e:Equation)
-        RETURN e.latex, e.description, e.source
-        """
-        if not self.enabled:
-            return []
-
-        driver = await self._get_driver()
-        if not driver:
-            return []
-
-        try:
-            async with driver.session() as session:
-                result = await session.run(
-                    """
-                    MATCH (c:Concept {name: $concept})-[:HAS_EQUATION]->(e:Equation)
-                    RETURN e.latex AS latex, e.description AS description,
-                           e.source AS source
-                    """,
-                    concept=concept,
-                )
-                records = await result.fetch(50)
-                return [
-                    {
                         "latex": r.get("latex"),
-                        "description": r.get("description"),
-                        "source": r.get("source"),
+                        "expression": r.get("expression"),
+                        "params": r.get("params", []),
+                        "output": r.get("output"),
                     }
                     for r in records
                 ]
         except Exception as e:
-            logger.warning("Memgraph get_concept_equations failed for '%s': %s", concept, e)
+            logger.warning("Memgraph get_concept_formulas failed for '%s': %s", concept_name, e)
             return []
 
-    async def get_concept_papers(self, concept: str) -> List[dict]:
+    async def get_verified_equations(self, concept_names: List[str]) -> List[dict]:
         """
-        Get real papers citing this concept from the knowledge graph.
-
-        MATCH (c:Concept {name: $concept})-[:CITED_IN]->(p:Paper)
-        RETURN p.title, p.authors, p.year, p.doi, p.journal
+        Get all verified LaTeX formulas for a list of concept names.
+        Used by the script generator to inject graph-verified equations.
         """
-        if not self.enabled:
-            return []
-
         driver = await self._get_driver()
         if not driver:
             return []
@@ -254,78 +220,143 @@ class MemgraphClient:
             async with driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (c:Concept {name: $concept})-[:CITED_IN]->(p:Paper)
-                    RETURN p.title AS title, p.authors AS authors,
-                           p.year AS year, p.doi AS doi, p.journal AS journal
+                    MATCH (c:Concept)-[:HAS_FORMULA]->(f:Formula)
+                    WHERE c.name IN $concepts
+                    RETURN f.id AS id, f.name AS name,
+                           f.latex AS latex, f.expression AS expression,
+                           c.name AS concept_name
+                    ORDER BY c.name, f.name
                     """,
-                    concept=concept,
+                    concepts=concept_names,
+                    timeout=5,
                 )
-                records = await result.fetch(50)
+                records = await result.data()
                 return [
                     {
-                        "title": r.get("title"),
-                        "authors": r.get("authors"),
-                        "year": r.get("year"),
-                        "doi": r.get("doi"),
-                        "journal": r.get("journal"),
+                        "id": r.get("id"),
+                        "name": r.get("name"),
+                        "latex": r.get("latex"),
+                        "expression": r.get("expression"),
+                        "concept_name": r.get("concept_name"),
                     }
                     for r in records
                 ]
         except Exception as e:
-            logger.warning("Memgraph get_concept_papers failed for '%s': %s", concept, e)
+            logger.warning("Memgraph get_verified_equations failed: %s", e)
             return []
 
-    async def get_concept_subgraph(self, concept: str, depth: int = 2) -> dict:
-        """
-        Get the local subgraph around a concept for Manim visualisation.
+    # ── PREREQUISITE CHAIN ──────────────────────────────────────────
 
-        MATCH path = (c:Concept {name: $concept})-[*1..{depth}]-(related)
-        Returns nodes and edges for graph rendering.
+    async def get_prerequisite_chain(self, concept_name: str) -> List[str]:
         """
-        if not self.enabled:
-            return {"nodes": [], "edges": []}
+        Returns ordered list of concepts this one REQUIRES (inward PREREQ_OF).
+        Used to build the 'Previously on Quantifaya' recap scene.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
 
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH path = (prereq:Concept)-[:PREREQ_OF*1..5]->(c:Concept {name: $name})
+                    WITH prereq, length(path) AS dist
+                    RETURN prereq.name AS name, dist
+                    ORDER BY dist ASC
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                records = await result.data()
+                return [r["name"] for r in records]
+        except Exception as e:
+            logger.warning("Memgraph get_prerequisite_chain failed for '%s': %s", concept_name, e)
+            return []
+
+    async def get_teaches_chain(self, concept_name: str) -> List[str]:
+        """
+        Returns ordered list of concepts this one TEACHES (outward PREREQ_OF).
+        Used for 'Next episode' suggestions.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH path = (c:Concept {name: $name})-[:PREREQ_OF*1..5]->(next:Concept)
+                    WITH next, length(path) AS dist
+                    RETURN next.name AS name, dist
+                    ORDER BY dist ASC
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                records = await result.data()
+                return [r["name"] for r in records]
+        except Exception as e:
+            logger.warning("Memgraph get_teaches_chain failed for '%s': %s", concept_name, e)
+            return []
+
+    # ── SUBGRAPH RETRIEVAL ───────────────────────────────────────────
+
+    async def get_concept_subgraph(self, concept_name: str, depth: int = 2) -> dict:
+        """
+        Get the local subgraph around a concept (Concept nodes only, depth-limited).
+        Returns nodes and edges for interactive graph visualisation in the frontend.
+        Capped at 50 nodes for UI performance.
+        """
         driver = await self._get_driver()
         if not driver:
             return {"nodes": [], "edges": []}
 
         try:
             async with driver.session() as session:
+                # Get all reachable Concept nodes within depth
                 result = await session.run(
                     f"""
-                    MATCH path = (c:Concept {{name: $concept}})-[*1..{depth}]-(related)
+                    MATCH path = (c:Concept {{name: $name}})-[*1..{depth}]-(related:Concept)
                     UNWIND nodes(path) AS n
-                    RETURN DISTINCT n.name AS name, labels(n) AS labels,
-                           n.definition AS definition
+                    RETURN DISTINCT n.name AS name, n.definition AS definition,
+                           n.category AS category, n.difficulty AS difficulty
+                    LIMIT 50
                     """,
-                    concept=concept,
+                    name=concept_name,
+                    timeout=5,
                 )
-                node_records = await result.fetch(200)
+                node_records = await result.data()
 
-                nodes = []
-                seen_names = set()
+                nodes = {}
                 for r in node_records:
                     name = r.get("name")
-                    if name and name not in seen_names:
-                        seen_names.add(name)
-                        nodes.append({
+                    if name and name not in nodes:
+                        nodes[name] = {
+                            "id": name,
                             "name": name,
-                            "labels": r.get("labels", []),
+                            "label": "Concept",
                             "definition": r.get("definition"),
-                        })
+                            "category": r.get("category"),
+                            "difficulty": r.get("difficulty"),
+                        }
 
-                # Get edges
+                # Get edges between these nodes
+                node_names = list(nodes.keys())
+                if len(node_names) < 2:
+                    return {"nodes": list(nodes.values()), "edges": []}
+
                 result2 = await session.run(
-                    f"""
-                    MATCH path = (c:Concept {{name: $concept}})-[r*1..{depth}]-(related)
-                    UNWIND r AS rel
-                    RETURN DISTINCT startNode(rel).name AS source,
-                           type(rel) AS type,
-                           endNode(rel).name AS target
+                    """
+                    MATCH (a:Concept)-[r]-(b:Concept)
+                    WHERE a.name IN $names AND b.name IN $names
+                    RETURN DISTINCT a.name AS source, type(r) AS type, b.name AS target
                     """,
-                    concept=concept,
+                    names=node_names,
+                    timeout=5,
                 )
-                edge_records = await result2.fetch(500)
+                edge_records = await result2.data()
                 edges = [
                     {
                         "source": r.get("source"),
@@ -335,52 +366,269 @@ class MemgraphClient:
                     for r in edge_records
                 ]
 
-                return {"nodes": nodes, "edges": edges}
+                return {"nodes": list(nodes.values()), "edges": edges}
         except Exception as e:
-            logger.warning("Memgraph get_concept_subgraph failed for '%s': %s", concept, e)
+            logger.warning("Memgraph get_concept_subgraph failed for '%s': %s", concept_name, e)
             return {"nodes": [], "edges": []}
 
-    async def graphrag_retrieve(self, topic: str, scene_title: str) -> dict:
-        """
-        Unified GraphRAG retrieval for a topic + scene.
+    # ── STRATEGY RETRIEVAL ──────────────────────────────────────────
 
-        1. find_related_concepts(topic) → top 5 concepts
-        2. For each concept: get_concept_equations + get_concept_papers
+    async def get_strategies_for_concept(self, concept_name: str) -> List[dict]:
+        """
+        Get trading strategies derived from a concept (via :DERIVED_FROM relationship).
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (c:Concept {name: $name})<-[:DERIVED_FROM]-(s:Strategy)
+                    RETURN s.name AS name, s.description AS description,
+                           s.status AS status, s.formula_ref AS formula_ref,
+                           s.sizing_formula_ref AS sizing_formula_ref,
+                           s.risk_weight AS risk_weight
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                records = await result.data()
+                return [
+                    {
+                        "name": r.get("name"),
+                        "description": r.get("description"),
+                        "status": r.get("status"),
+                        "formula_ref": r.get("formula_ref"),
+                        "sizing_formula_ref": r.get("sizing_formula_ref"),
+                        "risk_weight": r.get("risk_weight"),
+                        "params": {k: v for k, v in r.items() if k.startswith("param_")},
+                    }
+                    for r in records
+                ]
+        except Exception as e:
+            logger.warning("Memgraph get_strategies_for_concept failed for '%s': %s", concept_name, e)
+            return []
+
+    # ── REGIME RETRIEVAL ────────────────────────────────────────────
+
+    async def get_regime_for_concept(self, concept_name: str) -> Optional[dict]:
+        """
+        Get the market regime this concept is activated by (via :ACTIVATED_BY).
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return None
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (c:Concept {name: $name})-[:ACTIVATED_BY]->(reg:Regime)
+                    RETURN reg.name AS name, reg.description AS description,
+                           reg.momentum_score AS momentum_score,
+                           reg.vol_level AS vol_level
+                    LIMIT 1
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                record = await result.single()
+                return dict(record) if record else None
+        except Exception as e:
+            logger.warning("Memgraph get_regime_for_concept failed for '%s': %s", concept_name, e)
+            return None
+
+    # ── CATEGORY BROWSING ───────────────────────────────────────────
+
+    async def get_concepts_by_category(self, category: str) -> List[ConceptNode]:
+        """
+        Get all concepts in a specific category (uses indexed property).
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (c:Concept {category: $category})
+                    RETURN c.name AS name, c.definition AS definition,
+                           c.category AS category, c.difficulty AS difficulty
+                    ORDER BY c.difficulty, c.name
+                    """,
+                    category=category,
+                    timeout=5,
+                )
+                records = await result.data()
+                return [
+                    ConceptNode(
+                        name=r.get("name", ""),
+                        definition=r.get("definition"),
+                        category=r.get("category"),
+                        difficulty=r.get("difficulty"),
+                        score=1.0,
+                    )
+                    for r in records
+                ]
+        except Exception as e:
+            logger.warning("Memgraph get_concepts_by_category failed for '%s': %s", category, e)
+            return []
+
+    async def get_all_categories(self) -> List[dict]:
+        """Get all categories with concept counts."""
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (cat:Category)<-[:BELONGS_TO]-(c:Concept)
+                    RETURN cat.name AS name, cat.display AS display,
+                           count(c) AS concept_count
+                    ORDER BY concept_count DESC
+                    """,
+                    timeout=5,
+                )
+                records = await result.data()
+                return records
+        except Exception as e:
+            logger.warning("Memgraph get_all_categories failed: %s", e)
+            return []
+
+    # ── FULL GRAPHRAG RETRIEVAL ──────────────────────────────────────
+
+    async def graphrag_retrieve(self, topic: str, scene_title: str = "") -> GraphRAGResult:
+        """
+        Primary retrieval method called by SourceRetriever.
+        Returns everything the knowledge graph knows about this topic.
+
+        1. find_concepts(topic) → top 5 concepts
+        2. For each concept: get formulas
         3. get_concept_subgraph for the primary concept
-        4. Return unified result
+        4. get_prerequisite_chain for the primary concept
+        5. Return unified GraphRAGResult
         """
-        if not self.enabled:
-            return {"concepts": [], "equations": [], "papers": [], "subgraph": {"nodes": [], "edges": []}}
+        driver = await self._get_driver()
+        if not driver:
+            return GraphRAGResult.empty()
 
-        concepts = await self.find_related_concepts(topic, limit=5)
+        query = f"{topic} {scene_title}".strip()
+        concepts = await self.find_concepts(query, limit=5)
+        concept_names = [c.name for c in concepts]
 
-        all_equations = []
-        all_papers = []
-        primary_subgraph = {"nodes": [], "edges": []}
+        if not concept_names:
+            return GraphRAGResult.empty()
 
-        for i, concept in enumerate(concepts):
-            name = concept.get("name", "")
-            if not name:
-                continue
+        # Get formulas + subgraph + prereqs in parallel
+        equations, subgraph, prereqs = await asyncio.gather(
+            self.get_verified_equations(concept_names),
+            self.get_concept_subgraph(concept_names[0], depth=2),
+            self.get_prerequisite_chain(concept_names[0]),
+        )
 
-            equations = await self.get_concept_equations(name)
-            all_equations.extend(equations)
+        return GraphRAGResult(
+            topic=topic,
+            concepts=concepts,
+            equations=equations,  # Formula nodes mapped to EquationNode
+            papers=[],  # No Paper nodes in this Memgraph instance
+            subgraph=subgraph,
+            prerequisite_chain=prereqs,
+            concept_names=concept_names,
+        )
 
-            papers = await self.get_concept_papers(name)
-            all_papers.extend(papers)
+    # ── CROSS-EPISODE LINKING ────────────────────────────────────────
 
-            if i == 0:
-                primary_subgraph = await self.get_concept_subgraph(name)
+    async def tag_episode_with_concepts(self, episode_id: str, episode_title: str,
+                                        concept_names: List[str]) -> None:
+        """
+        After successful YouTube upload, write Episode node + COVERS edges
+        back into Memgraph. Enables 'See also' cross-linking in YouTube descriptions.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return
 
-        return {
-            "concepts": concepts,
-            "equations": all_equations,
-            "papers": all_papers,
-            "subgraph": primary_subgraph,
-        }
+        try:
+            async with driver.session() as session:
+                await session.run(
+                    """
+                    MERGE (ep:Episode {episode_id: $episode_id})
+                    SET ep.title = $title, ep.created_at = timestamp()
+                    WITH ep
+                    UNWIND $concepts AS concept_name
+                    MATCH (c:Concept {name: concept_name})
+                    MERGE (ep)-[:COVERS]->(c)
+                    """,
+                    episode_id=episode_id,
+                    title=episode_title,
+                    concepts=concept_names,
+                    timeout=5,
+                )
+                logger.info("Tagged episode %s with %d concepts", episode_id, len(concept_names))
+        except Exception as e:
+            logger.warning("Memgraph tag_episode_with_concepts failed: %s", e)
 
-    async def close(self):
-        """Close the driver connection."""
-        if self._driver:
-            await self._driver.close()
-            self._driver = None
+    async def find_episodes_covering_concept(self, concept_name: str) -> List[dict]:
+        """
+        Returns episode IDs + titles that cover a given concept.
+        Requires Episode:Concept edges added during production.
+        """
+        driver = await self._get_driver()
+        if not driver:
+            return []
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (ep:Episode)-[:COVERS]->(c:Concept {name: $name})
+                    RETURN ep.episode_id AS episode_id, ep.title AS title
+                    ORDER BY ep.created_at DESC
+                    """,
+                    name=concept_name,
+                    timeout=5,
+                )
+                records = await result.data()
+                return records
+        except Exception as e:
+            logger.warning("Memgraph find_episodes_covering_concept failed: %s", e)
+            return []
+
+    # ── HEALTH ───────────────────────────────────────────────────────
+
+    async def health_check(self) -> dict:
+        """Returns connection status, concept count, and graph metadata."""
+        driver = await self._get_driver()
+        if not driver:
+            return {"status": "disabled"}
+
+        try:
+            async with driver.session() as session:
+                result = await session.run(
+                    "MATCH (c:Concept) RETURN count(c) AS concept_count",
+                    timeout=5,
+                )
+                record = await result.single()
+                concept_count = record["concept_count"] if record else 0
+
+                # Get relationship stats
+                result2 = await session.run(
+                    "MATCH ()-[r]->() RETURN type(r) AS rel_type, count(r) AS cnt ORDER BY cnt DESC",
+                    timeout=5,
+                )
+                rel_records = await result2.data()
+                rel_summary = {r["rel_type"]: r["cnt"] for r in rel_records}
+
+                return {
+                    "status": "connected",
+                    "uri": self.settings.memgraph_uri,
+                    "concept_count": concept_count,
+                    "relationship_counts": rel_summary,
+                }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
