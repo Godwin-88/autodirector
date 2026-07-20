@@ -19,7 +19,7 @@ def upgrade():
     # ── PILLARS TABLE ────────────────────────────────────────────────
     op.create_table(
         "pillars",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("series", sa.String(50), nullable=False, server_default="quantifaya"),
         sa.Column("pillar_number", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(200), nullable=False),
@@ -35,7 +35,7 @@ def upgrade():
     # ── PLANNED EPISODES TABLE ──────────────────────────────────────
     op.create_table(
         "planned_episodes",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("pillar_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("pillars.id"), nullable=False),
         sa.Column("sequence_number", sa.Integer(), nullable=False),
         sa.Column("topic", sa.String(500), nullable=False),
@@ -52,7 +52,7 @@ def upgrade():
     # ── SCHEDULE OVERRIDES TABLE ────────────────────────────────────
     op.create_table(
         "schedule_overrides",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("target_date", sa.Date(), nullable=False, unique=True),
         sa.Column("planned_episode_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("planned_episodes.id"), nullable=True),
         sa.Column("reason", sa.Text(), nullable=True),
