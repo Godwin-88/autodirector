@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     manim_quality: str = "h"
     log_level: str = "INFO"
 
+    # Memgraph
+    memgraph_uri: str = "bolt://memgraph:7687"
+    memgraph_user: str = ""
+    memgraph_password: str = ""
+    memgraph_enabled: bool = False
+
+    # Source Ingestion
+    max_pdf_size_mb: int = 50
+    playwright_enabled: bool = True
+    embedding_batch_size: int = 32
+
     class Config:
         env_file = ".env"
 
