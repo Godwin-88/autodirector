@@ -8,6 +8,10 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { ArchitectureTab } from "@/components/ArchitectureTab";
 import { EpisodeList } from "@/components/EpisodeList";
 import { SourceManager, EpisodeSourcePanel } from "@/components/SourceManager";
+import { SuggestionPanel } from "@/components/SuggestionPanel";
+import { StrategyBoard } from "@/components/StrategyBoard";
+import { UniversalPasteArea } from "@/components/UniversalPasteArea";
+import { MemgraphConceptSidebar } from "@/components/MemgraphConceptSidebar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   createEpisode,
@@ -367,6 +371,7 @@ export default function App() {
               <TabsList>
                 <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
                 <TabsTrigger value="sources">Sources</TabsTrigger>
+                <TabsTrigger value="strategy">Strategy</TabsTrigger>
                 <TabsTrigger value="architecture">Architecture</TabsTrigger>
               </TabsList>
 
@@ -395,6 +400,19 @@ export default function App() {
               <TabsContent value="sources">
                 <SourceManager />
                 {selectedId && <EpisodeSourcePanel episodeId={selectedId} />}
+              </TabsContent>
+
+              <TabsContent value="strategy">
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  <div className="xl:col-span-1 space-y-6">
+                    <SuggestionPanel />
+                    <MemgraphConceptSidebar />
+                  </div>
+                  <div className="xl:col-span-2 space-y-6">
+                    <StrategyBoard />
+                    <UniversalPasteArea />
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="architecture">

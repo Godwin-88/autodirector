@@ -136,3 +136,24 @@ export async function searchMemgraphConcepts(
   });
   return handleResponse(response);
 }
+
+// Smart paste — classify pasted text (URL, DOI, BibTeX, etc.)
+export async function classifyPaste(
+  text: string,
+  episodeId?: string,
+): Promise<{
+  source_type: string;
+  confidence: number;
+  content_preview: string;
+  action: string;
+  doi?: string;
+  url?: string;
+  raw_text?: string;
+}> {
+  const response = await fetch(`/api/v1/paste`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, episode_id: episodeId }),
+  });
+  return handleResponse(response);
+}
