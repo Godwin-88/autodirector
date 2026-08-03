@@ -1,0 +1,150 @@
+"""CogVideoX provider — self-hosted, free, watermark-free.
+
+CogVideoX (THUDM) is the primary video generation provider for AutoDirector.
+It runs locally via HuggingFace ``diffusers``, so there is zero recurring
+API cost and full control over the output. This fits the Docker Compose
+infrastructure (GPU-enabled service).
+
+Model: THUDM/CogVideoX-5b (or -2b for lower VRAM).
+
+Note: The heavy ``diffusers``/``torch`` imports are deferred to
+``_load_pipeline()`` so that importing this module (and the provider
+registry) does not require a GPU or the full ML stack at import time.
+"""
+import asyncio
+from pathlib import Path
+
+from core.config import get_settings
+from core.logging import get_logger
+
+from services.generation.providers.base import (
+    VideoGenError,
+    VideoGenProvider,
+)
+
+logger = get_logger("providers.cogvideox")
+
+
+class CogVideoXProvider(VideoGenProvider):
+    """Self-hosted CogVideoX text-to-video via diffusers."""
+
+    name = "cogvideox"
+
+    def __init__(self):
+        settings = get_settings()
+        self.model_id = settings.cogvideox_model
+        self.device = settings.cogvideox_device
+        self.dtype = settings.cogvideox_dtype
+        self._pipeline = None
+
+    def _load_pipeline(self):
+        """Lazily load the CogVideoX pipeline (heavy import)."""
+        if self._pipeline is not None:
+            return self._pipeline
+
+        try:
+            import torch
+            from diffusers import CogVideoXPipeline
+        except ImportError as e:
+            raise VideoGenError(
+                "CogVideoX requires diffusers, torch, and transformers. "
+                f"Install with: pip install diffusers torch transformers. ({e})"
+            )
+
+        logger.info(
+            "cogvideox_loading_model",
+            model=self.model_id,
+            device=self.device,
+        )
+
+        # Load with reduced memory footprint
+        torch_dtype = torch.float16 if self.dtype == "float16" else torch.float32
+        pipe = CogVideoXPipeline.from_pretrained(
+            self.model_id,
+            torch_dtype=torch_dtype,
+        )
+        if self.device == "cuda":
+            pipe.enable_model_cpu_offload()
+        self._pipeline = pipe
+        logger.info("cogvideox_model_loaded", model=self.model_id)
+        return self._pipeline
+
+    async def generate(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        output_path: str,
+        duration_secs: int = 8,
+        resolution: str = "1920*1080",
+    ) -> Path:
+        """Generate a video clip from a text prompt using CogVideoX.
+
+        CogVideoX generates a fixed number of frames (default 49). We map
+        ``duration_secs`` to a frame count (8 fps default) and export the
+        result to an .mp4.
+        """
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+
+        # CogVideoX generates 49 frames at ~8fps by default (~6s).
+        # Map duration to frames: 8 fps * duration_secs.
+        num_frames = max(16, min(49, int(duration_secs * 8)))
+
+        try:
+            pipe = self._load_pipeline()
+
+            # Run generation in a thread to avoid blocking the event loop.
+            loop = asyncio.get_event_loop()
+            frames = await loop.run_in_executor(
+                None,
+                lambda: pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    num_frames=num_frames,
+                    num_inference_steps=50,
+                    guidance_scale=6.0,
+                ).frames[0],
+            )
+
+            # Export frames to video
+            from diffusers.utils import export_to_video
+            await loop.run_in_executor(
+                None,
+                lambda: export_to_video(frames, str(output), fps=8),
+            )
+
+            logger.info(
+                "cogvideox_clip_generated",
+                path=str(output),
+                frames=num_frames,
+            )
+            return output
+
+        except VideoGenError:
+            raise
+        except Exception as e:
+            raise VideoGenError(f"CogVideoX generation failed: {e}")
+
+    async def generate_from_image(
+        self,
+        image_path: str,
+        prompt: str,
+        output_path: str,
+        duration_secs: int = 8,
+        resolution: str = "1920*1080",
+    ) -> Path:
+        """CogVideoX does not natively support image-to-video in this
+        integration. Fall back to text-only generation."""
+        logger.warning(
+            "cogvideox_image_to_video_not_supported_falling_back_to_text",
+        )
+        return await self.generate(
+            prompt, self.default_negative_prompt, output_path,
+            duration_secs, resolution,
+        )
+
+
+# Register with the provider registry
+from services.generation.providers import register_provider  # noqa: E402
+
+register_provider("cogvideox", CogVideoXProvider)

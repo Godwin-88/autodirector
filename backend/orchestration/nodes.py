@@ -18,6 +18,10 @@ from services.ingestion.embedder import ChunkEmbedder
 from services.ingestion.memgraph_client import MemgraphClient
 from services.generation.wan_client import WanClient
 from services.generation.wan_fallback import WanFallback
+from services.generation.providers import (
+    get_video_gen_provider,
+    get_video_gen_fallback_provider,
+)
 from services.generation.manim_codegen import ManimCodeGenerator
 from services.generation.manim_renderer import ManimRenderer
 from services.generation.tts_synthesizer import TTSSynthesizer
@@ -222,25 +226,43 @@ async def synthesize_audio(state: EpisodeState) -> EpisodeState:
 
 
 async def generate_wan_clip(state: EpisodeState) -> EpisodeState:
-    """Node 8: Generate Wan intro clip (with fallback)."""
+    """Node 8: Generate intro clip via the provider chain.
+
+    Chain: primary provider (cogvideox) -> fallback provider (wan) ->
+    Manim title card. This guarantees a render always exists even if the
+    primary video-gen provider is unavailable.
+    """
     logger.info("node:generate_wan_clip")
     try:
         output_path = f"./output/wan/{state['episode_id']}_intro.mp4"
+        prompt = state.get("wan_prompt", "")
+        negative_prompt = WanPromptGenerator.WAN_NEGATIVE_PROMPT
+
+        # Try primary provider
         try:
-            path = await wan_client.generate(
-                state.get("wan_prompt", ""),
-                WanPromptGenerator.WAN_NEGATIVE_PROMPT,
-                output_path,
-            )
+            provider = get_video_gen_provider()
+            path = await provider.generate(prompt, negative_prompt, output_path)
             state["wan_fallback"] = False
+            state["video_gen_provider"] = provider.name
         except Exception as e:
-            logger.warning("wan_api_failed_using_fallback", error=str(e))
-            path = await wan_fallback.render(
-                state["topic"],
-                state["episode_id"],
-                output_path,
-            )
-            state["wan_fallback"] = True
+            logger.warning("primary_video_gen_failed", error=str(e))
+            # Try fallback provider
+            try:
+                fallback = get_video_gen_fallback_provider()
+                path = await fallback.generate(prompt, negative_prompt, output_path)
+                state["wan_fallback"] = False
+                state["video_gen_provider"] = fallback.name
+            except Exception as e2:
+                logger.warning("fallback_video_gen_failed", error=str(e2))
+                # Final safety net: Manim title card
+                path = await wan_fallback.render(
+                    state["topic"],
+                    state["episode_id"],
+                    output_path,
+                )
+                state["wan_fallback"] = True
+                state["video_gen_provider"] = "manim"
+
         state["wan_clip_path"] = str(path)
         state["current_phase"] = "wan_generated"
     except Exception as e:

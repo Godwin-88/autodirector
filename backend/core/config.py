@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     b2_endpoint_url: str = "https://s3.us-east-005.backblazeb2.com"
     b2_public_url_base: str = "https://f005.backblazeb2.com/file/quantifaya"
 
+    # Video Generation Providers (free-tier)
+    # Primary provider: cogvideox (self-hosted, free) | wan (legacy)
+    video_gen_provider: str = "cogvideox"
+    # Fallback provider used if the primary fails (must be free-tier too)
+    video_gen_fallback_provider: str = "wan"
+    # CogVideoX (self-hosted via diffusers)
+    cogvideox_model: str = "THUDM/CogVideoX-5b"
+    cogvideox_device: str = "cuda"          # cuda | cpu
+    cogvideox_dtype: str = "float16"        # float16 | float32
+    # B-roll strategy: off | cold_open_only | scene_transitions | full
+    broll_strategy: str = "cold_open_only"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

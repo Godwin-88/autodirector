@@ -1,119 +1,118 @@
 # Render Infrastructure as Code
 # https://render.com/docs/yaml
 #
-# Deploys the minimal open-source configuration:
+# Deploys:
 #   - Web Service (FastAPI API)  — handles /api requests
 #   - Background Worker (Celery) — processes async jobs (video generation etc.)
-#   - PostgreSQL (managed by Render, Supabase-compatible)
-#   - Redis (managed by Render)
+#
+# DATABASES: Supabase (Postgres) + Upstash (Redis) — external providers.
+#   No Render-managed Postgres/Redis blocks. Connection strings are injected
+#   as secrets (see "Required secrets" below).
+#
+# Build: both services use backend/Dockerfile via Docker runtime. Do NOT set
+# a native `runtime` alongside `dockerfilePath` — they are mutually exclusive
+# on Render. Omit `runtime` so Render infers the Docker runtime.
 #
 # Required secrets (add via Render dashboard → Environment → Secrets):
-#   QWEN_API_KEY       — Alibaba/Qwen API key for LLM completion
-#   WAN_API_KEY        — Wan API key for video generation (optional)
-#   POSTGRES_PASSWORD  — set by Render automatically if using the PostgreSQL plugin
+#   QWEN_API_KEY              — Alibaba/Qwen API key for LLM completion
+#   WAN_API_KEY               — Wan API key for video generation (optional, fallback)
+#   SUPABASE_DATABASE_URL     — full Postgres URL from Supabase, e.g.
+#                               postgresql://postgres:pass@host:5432/postgres
+#   SUPABASE_HOST             — Supabase project DB host (from Project Settings → Database)
+#   SUPABASE_PORT             — usually 5432 (via direct connection) or 6543 (pooler)
+#   SUPABASE_DB               — database name, usually "postgres"
+#   SUPABASE_USER             — usually "postgres"
+#   SUPABASE_PASSWORD         — your DB password
+#   UPSTASH_REDIS_URL         — Upstash REST/connection URL, e.g. rediss://...
+#   B2_KEY_ID                 — Backblaze B2 key ID (optional, for media upload)
+#   B2_APPLICATION_KEY        — Backblaze B2 application key (optional)
 #
-# Optional: replace managed Postgres/Redis with Supabase/ApsaraDB/Upstash by
-# setting the connection string env vars explicitly.
+# NOTE: For external DBs/Redis you must also add these services to Render's
+# "Allow Inbound" rules (Render → your service → Access → Inbound IPs) or
+# whitelist them in Supabase/Upstash, since managed Render services are no
+# longer hosting the DB/Redis. Render documents the external-services approach.
 services:
   # ── API Web Service ────────────────────────────────────────────────
   - type: web
     name: quantifaya-api
-    runtime: python
     region: oregon
     plan: starter
     build:
-      dockerfilePath: backend/Dockerfile
-      context: .
-    startCommand: bash backend/init.sh web
+      dockerfilePath: Dockerfile
+      context: ./backend
+    startCommand: bash init.sh web
     healthCheckPath: /health
-    disk:
-      name: output
-      mountPath: /app/output
-      sizeGB: 10
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: MEMGRAPH_ENABLED
         value: "false"
+      - key: DATABASE_URL
+        fromSecret: SUPABASE_DATABASE_URL
       - key: POSTGRES_HOST
-        fromDatabase: quantifaya-db
-        property: host
+        fromSecret: SUPABASE_HOST
       - key: POSTGRES_PORT
-        fromDatabase: quantifaya-db
-        property: port
+        fromSecret: SUPABASE_PORT
       - key: POSTGRES_DB
-        fromDatabase: quantifaya-db
-        property: database
+        fromSecret: SUPABASE_DB
       - key: POSTGRES_USER
-        fromDatabase: quantifaya-db
-        property: user
+        fromSecret: SUPABASE_USER
       - key: POSTGRES_PASSWORD
-        fromDatabase: quantifaya-db
-        property: password
+        fromSecret: SUPABASE_PASSWORD
       - key: REDIS_URL
-        fromService: quantifaya-redis
-        property: connectionString
+        fromSecret: UPSTASH_REDIS_URL
       - key: QWEN_API_KEY
         fromSecret: QWEN_API_KEY
       - key: WAN_API_KEY
         fromSecret: WAN_API_KEY
+      - key: VIDEO_GEN_PROVIDER
+        value: "wan"
+      - key: VIDEO_GEN_FALLBACK_PROVIDER
+        value: "wan"
+      - key: BROLL_STRATEGY
+        value: "off"
       - key: B2_BUCKET_NAME
         value: quantifaya-uploads
       - key: B2_APPLICATION_KEY
-        value: ""
+        fromSecret: B2_APPLICATION_KEY
       - key: B2_KEY_ID
-        value: ""
+        fromSecret: B2_KEY_ID
 
   # ── Celery Background Worker ────────────────────────────────────────
   - type: worker
     name: quantifaya-worker
-    runtime: python
     region: oregon
     plan: starter
     build:
-      dockerfilePath: backend/Dockerfile
-      context: .
-    startCommand: bash backend/init.sh worker
+      dockerfilePath: Dockerfile
+      context: ./backend
+    startCommand: bash init.sh worker
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: MEMGRAPH_ENABLED
         value: "false"
+      - key: DATABASE_URL
+        fromSecret: SUPABASE_DATABASE_URL
       - key: POSTGRES_HOST
-        fromDatabase: quantifaya-db
-        property: host
+        fromSecret: SUPABASE_HOST
       - key: POSTGRES_PORT
-        fromDatabase: quantifaya-db
-        property: port
+        fromSecret: SUPABASE_PORT
       - key: POSTGRES_DB
-        fromDatabase: quantifaya-db
-        property: database
+        fromSecret: SUPABASE_DB
       - key: POSTGRES_USER
-        fromDatabase: quantifaya-db
-        property: user
+        fromSecret: SUPABASE_USER
       - key: POSTGRES_PASSWORD
-        fromDatabase: quantifaya-db
-        property: password
+        fromSecret: SUPABASE_PASSWORD
       - key: REDIS_URL
-        fromService: quantifaya-redis
-        property: connectionString
+        fromSecret: UPSTASH_REDIS_URL
       - key: QWEN_API_KEY
         fromSecret: QWEN_API_KEY
       - key: WAN_API_KEY
         fromSecret: WAN_API_KEY
-    disk:
-      name: output
-      mountPath: /app/output
-      sizeGB: 10
-
-  - type: redis
-    name: quantifaya-redis
-    region: oregon
-    plan: starter
-    primary: true
-
-databases:
-  - name: quantifaya-db
-    region: oregon
-    plan: starter
-    postgresVersion: "16"
+      - key: VIDEO_GEN_PROVIDER
+        value: "wan"
+      - key: VIDEO_GEN_FALLBACK_PROVIDER
+        value: "wan"
+      - key: BROLL_STRATEGY
+        value: "off"

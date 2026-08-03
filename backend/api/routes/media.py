@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 import httpx
 
 from services.delivery.b2_storage import B2StorageService
+from services.delivery.genblaze_client import GenblazeClient
 
 router = APIRouter()
 
@@ -13,6 +14,13 @@ def get_b2(request: Request) -> B2StorageService:
     if not b2:
         raise HTTPException(503, "B2 storage not available")
     return b2
+
+
+# ── B2 (boto3 S3-compatible API) endpoints ───────────────────────────────
+
+@router.get("/health")
+async def b2_health(b2: B2StorageService = Depends(get_b2)):
+    return b2.health_check()
 
 
 @router.get("/library")
@@ -74,6 +82,27 @@ async def stream_video(
     )
 
 
-@router.get("/health")
-async def b2_health(b2: B2StorageService = Depends(get_b2)):
-    return b2.health_check()
+# ── Genblaze SDK endpoints (official Backblaze SDK) ──────────────────────
+
+@router.get("/genblaze/health")
+async def genblaze_health():
+    """Health check via the official Backblaze Genblaze SDK."""
+    client = GenblazeClient()
+    return client.health_check()
+
+
+@router.get("/genblaze/episodes")
+async def genblaze_list_episodes():
+    """List episode IDs stored in B2 using the Genblaze SDK backend."""
+    client = GenblazeClient()
+    episode_ids = client.list_episode_ids()
+    return {"episodes": episode_ids, "count": len(episode_ids), "sdk": "genblaze"}
+
+
+@router.get("/genblaze/episodes/{episode_id}/presigned")
+async def genblaze_presigned(episode_id: str, expires: int = 3600):
+    """Get a presigned URL for a B2 object via the Genblaze SDK."""
+    client = GenblazeClient()
+    key = f"episodes/{episode_id}/final.mp4"
+    url = client.get_presigned_url(key, expires_in=expires)
+    return {"presigned_url": url, "expires_in": expires, "sdk": "genblaze"}
