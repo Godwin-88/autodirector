@@ -106,15 +106,14 @@ services:
       mountPath: /app/output
       sizeGB: 10
 
-databases:
-  - name: quantifaya-db
-    region: oregon
-    plan: starter
-    postgresVersion: "16"
-
-services:
   - type: redis
     name: quantifaya-redis
     region: oregon
     plan: starter
     primary: true
+
+databases:
+  - name: quantifaya-db
+    region: oregon
+    plan: starter
+    postgresVersion: "16"
