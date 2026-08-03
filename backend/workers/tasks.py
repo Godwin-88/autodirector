@@ -34,18 +34,31 @@ class EpisodeGraphTask(Task):
 
 @celery_app.task(bind=True, base=EpisodeGraphTask, max_retries=3)
 def run_episode_graph(self, episode_id: str, topic: str,
-                      episode_number: int, series: str):
-    """Run the full episode generation graph."""
+                      episode_number: int, series: str,
+                      video_gen_provider: str = ""):
+    """Run the full episode generation graph.
+
+    Args:
+        video_gen_provider: User-selected provider for this episode
+            (wan | cogvideox | colab | manim). Empty string means "use the
+            global default".
+    """
     from orchestration.graph import build_episode_graph
     from schemas.episode_state import EpisodeState
 
-    logger.info("task:run_episode_graph", episode_id=episode_id, topic=topic)
+    logger.info(
+        "task:run_episode_graph",
+        episode_id=episode_id,
+        topic=topic,
+        video_gen_provider=video_gen_provider,
+    )
 
     initial_state: EpisodeState = {
         "episode_id": episode_id,
         "topic": topic,
         "episode_number": episode_number,
         "series": series,
+        "video_gen_provider": video_gen_provider,
         "outline": None,
         "sources": None,
         "script": None,

@@ -5,7 +5,8 @@ interface. The active provider is selected via the ``video_gen_provider``
 setting, with an optional fallback chain (primary -> fallback -> Manim).
 
 Providers:
-    - cogvideox: self-hosted CogVideoX (primary, zero recurring cost)
+    - cogvideox: self-hosted CogVideoX (zero recurring cost)
+    - colab:     queue-based GPU worker on Colab T4 (free GPU)
     - wan:       Wan 2.1 via DashScope (legacy, backward compatible)
 """
 from typing import Dict, Type
@@ -42,6 +43,7 @@ def _ensure_registry() -> None:
         return
     import importlib
     importlib.import_module("services.generation.providers.cogvideox")
+    importlib.import_module("services.generation.providers.colab")
     importlib.import_module("services.generation.providers.wan")
     _IMPORTS_DONE = True
 

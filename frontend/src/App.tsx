@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/Header";
-import { EpisodeForm } from "@/components/EpisodeForm";
+import { EpisodeForm, type VideoGenProvider } from "@/components/EpisodeForm";
 import { PipelineFlow } from "@/components/PipelineFlow";
 import { ScriptPreview } from "@/components/ScriptPreview";
 import { WanPreview } from "@/components/WanPreview";
@@ -234,7 +234,11 @@ export default function App() {
   }, [loadEpisodes]);
 
   const handleGenerate = useCallback(
-    async (topic: string, episodeNumber: number) => {
+    async (
+      topic: string,
+      episodeNumber: number,
+      videoGenProvider: VideoGenProvider = "wan"
+    ) => {
       setIsGenerating(true);
       setScenes([]);
       setStreamingText(undefined);
@@ -244,7 +248,7 @@ export default function App() {
       setStages(INITIAL_STAGES);
 
       try {
-        const res = await createEpisode(topic, episodeNumber);
+        const res = await createEpisode(topic, episodeNumber, videoGenProvider);
         const episodeId = res.data.id;
         setSelectedId(episodeId);
         await loadEpisodes();

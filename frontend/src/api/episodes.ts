@@ -23,11 +23,16 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 
 export async function createEpisode(
   topic: string,
-  episodeNumber: number
+  episodeNumber: number,
+  videoGenProvider: string = "wan"
 ): Promise<EpisodeResponse> {
   return fetchJSON<EpisodeResponse>(`${BASE_URL}/episodes`, {
     method: "POST",
-    body: JSON.stringify({ topic, episode_number: episodeNumber }),
+    body: JSON.stringify({
+      topic,
+      episode_number: episodeNumber,
+      video_gen_provider: videoGenProvider,
+    }),
   });
 }
 

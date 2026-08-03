@@ -7,6 +7,9 @@ class EpisodeState(TypedDict):
     topic: str
     episode_number: int
     series: str
+    # User-selected video generation provider for this episode:
+    # wan | cogvideox | colab | manim. Empty string = use global default.
+    video_gen_provider: Optional[str]
     outline: Optional[Dict[str, Any]]
     sources: Optional[Dict[str, Any]]
     script: Optional[Dict[str, Any]]

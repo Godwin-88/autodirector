@@ -15,6 +15,8 @@ class Episode(Base):
     series = Column(String, default="quantifaya")
     status = Column(String, default="pending")
     wan_fallback = Column(Boolean, default=False)
+    # User-selectable video generation provider: wan | cogvideox | colab | manim
+    video_gen_provider = Column(String(32), nullable=True)
     script_json = Column(JSONB, nullable=True)
     sources_json = Column(JSONB, nullable=True)
     seo_json = Column(JSONB, nullable=True)

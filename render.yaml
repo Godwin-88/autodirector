@@ -2,44 +2,40 @@
 # https://render.com/docs/yaml
 #
 # Deploys:
-#   - Web Service (FastAPI API)  — handles /api requests
-#   - Background Worker (Celery) — processes async jobs (video generation etc.)
+#   - Web Service (FastAPI API)     — handles /api requests
+#   - Background Worker (Celery)    — processes async jobs (video generation etc.)
+#
+# RUNTIME: native Python (NO Docker). Render's Blueprint YAML does NOT support
+# the `build:`/`dockerfilePath:`/`context:` block for web/worker services — that
+# caused the earlier "field build not found in file.service" error. The Dockerfile
+# is optional for local/docker-compose use only.
+#
+# System packages (ffmpeg, Manim LaTeX, cairo, playwright) are installed by the
+# `backend/render_build.sh` script during the build step (Render build+run share
+# one container). `rootDir: backend` puts main.py/init.sh/requirements.txt at the
+# service root.
 #
 # DATABASES: Supabase (Postgres) + Upstash (Redis) — external providers.
-#   No Render-managed Postgres/Redis blocks. Connection strings are injected
-#   as secrets (see "Required secrets" below).
-#
-# Build: both services use backend/Dockerfile via Docker runtime. Do NOT set
-# a native `runtime` alongside `dockerfilePath` — they are mutually exclusive
-# on Render. Omit `runtime` so Render infers the Docker runtime.
+#   Connection strings are injected as secrets (see "Required secrets" below).
 #
 # Required secrets (add via Render dashboard → Environment → Secrets):
 #   QWEN_API_KEY              — Alibaba/Qwen API key for LLM completion
 #   WAN_API_KEY               — Wan API key for video generation (optional, fallback)
-#   SUPABASE_DATABASE_URL     — full Postgres URL from Supabase, e.g.
-#                               postgresql://postgres:pass@host:5432/postgres
-#   SUPABASE_HOST             — Supabase project DB host (from Project Settings → Database)
-#   SUPABASE_PORT             — usually 5432 (via direct connection) or 6543 (pooler)
-#   SUPABASE_DB               — database name, usually "postgres"
-#   SUPABASE_USER             — usually "postgres"
-#   SUPABASE_PASSWORD         — your DB password
+#   SUPABASE_DATABASE_URL     — full Postgres URL from Supabase
+#   SUPABASE_HOST, SUPABASE_PORT, SUPABASE_DB, SUPABASE_USER, SUPABASE_PASSWORD
 #   UPSTASH_REDIS_URL         — Upstash REST/connection URL, e.g. rediss://...
-#   B2_KEY_ID                 — Backblaze B2 key ID (optional, for media upload)
-#   B2_APPLICATION_KEY        — Backblaze B2 application key (optional)
+#   B2_KEY_ID, B2_APPLICATION_KEY — Backblaze B2 (optional, for media upload)
 #
-# NOTE: For external DBs/Redis you must also add these services to Render's
-# "Allow Inbound" rules (Render → your service → Access → Inbound IPs) or
-# whitelist them in Supabase/Upstash, since managed Render services are no
-# longer hosting the DB/Redis. Render documents the external-services approach.
+# NOTE: Whitelist Render's outbound IPs in Supabase + Upstash (they are external).
 services:
   # ── API Web Service ────────────────────────────────────────────────
   - type: web
     name: quantifaya-api
+    runtime: python
     region: oregon
     plan: starter
-    build:
-      dockerfilePath: Dockerfile
-      context: ./backend
+    rootDir: backend
+    buildCommand: bash render_build.sh
     startCommand: bash init.sh web
     healthCheckPath: /health
     envVars:
@@ -81,11 +77,11 @@ services:
   # ── Celery Background Worker ────────────────────────────────────────
   - type: worker
     name: quantifaya-worker
+    runtime: python
     region: oregon
     plan: starter
-    build:
-      dockerfilePath: Dockerfile
-      context: ./backend
+    rootDir: backend
+    buildCommand: bash render_build.sh
     startCommand: bash init.sh worker
     envVars:
       - key: PYTHONUNBUFFERED

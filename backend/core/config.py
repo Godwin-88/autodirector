@@ -42,14 +42,25 @@ class Settings(BaseSettings):
     b2_public_url_base: str = "https://f005.backblazeb2.com/file/quantifaya"
 
     # Video Generation Providers (free-tier)
-    # Primary provider: cogvideox (self-hosted, free) | wan (legacy)
-    video_gen_provider: str = "cogvideox"
+    # Primary provider: cogvideox (self-hosted, free) | colab (queue-worker) | wan (legacy)
+    video_gen_provider: str = "wan"
     # Fallback provider used if the primary fails (must be free-tier too)
     video_gen_fallback_provider: str = "wan"
-    # CogVideoX (self-hosted via diffusers)
-    cogvideox_model: str = "THUDM/CogVideoX-5b"
+    # CogVideoX (self-hosted via diffusers). Default is -2b — fits a Colab T4 (16GB)
+    # with fp16 + CPU offload. -5b needs an A100 (Colab Pro).
+    cogvideox_model: str = "THUDM/CogVideoX-2b"
     cogvideox_device: str = "cuda"          # cuda | cpu
     cogvideox_dtype: str = "float16"        # float16 | float32
+    # Hugging Face token (gitignored .env). Used to access gated models like CogVideoX-2b.
+    # Leave empty in the notebook to prompt via getpass at runtime.
+    hf_token: str = ""
+    # Colab queue-based GPU worker (Pattern A).
+    # The Colab provider enqueues a job to Redis and polls for the result,
+    # which the colab/cogvideox_worker.ipynb notebook generates and uploads to B2.
+    colab_redis_url: str = ""               # defaults to redis_url if empty
+    colab_poll_interval_secs: int = 5
+    colab_job_timeout_secs: int = 900       # 15 minutes
+    colab_result_prefix: str = "colab"
     # B-roll strategy: off | cold_open_only | scene_transitions | full
     broll_strategy: str = "cold_open_only"
 

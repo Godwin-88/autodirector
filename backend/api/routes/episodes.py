@@ -21,6 +21,9 @@ class CreateEpisodeRequest(BaseModel):
     topic: str
     episode_number: int = 1
     series: str = "quantifaya"
+    # User-selectable video generation provider: wan | cogvideox | colab | manim
+    # Defaults to the global settings value when empty.
+    video_gen_provider: str = ""
 
 
 class EpisodeResponse(BaseModel):
@@ -36,12 +39,25 @@ class EpisodeResponse(BaseModel):
 @router.post("", status_code=201)
 async def create_episode(req: CreateEpisodeRequest, db: AsyncSession = Depends(get_db)):
     """Create a new episode and enqueue generation."""
+    from core.config import get_settings
+
+    # Resolve the provider: per-episode choice, else the global default.
+    provider = req.video_gen_provider.strip().lower() or get_settings().video_gen_provider
+    # Validate against known providers
+    known = {"wan", "cogvideox", "colab", "manim"}
+    if provider not in known:
+        raise HTTPException(
+            status_code=422,
+            detail=f"video_gen_provider must be one of {sorted(known)}",
+        )
+
     episode = Episode(
         id=uuid.uuid4(),
         topic=req.topic,
         episode_number=req.episode_number,
         series=req.series,
         status="pending",
+        video_gen_provider=provider,
     )
     db.add(episode)
     await db.flush()
@@ -53,13 +69,15 @@ async def create_episode(req: CreateEpisodeRequest, db: AsyncSession = Depends(g
         req.topic,
         req.episode_number,
         req.series,
+        provider,
     )
 
-    logger.info("episode_created", id=str(episode.id), topic=req.topic)
+    logger.info("episode_created", id=str(episode.id), topic=req.topic, provider=provider)
     return {
         "episode_id": str(episode.id),
         "status": "pending",
         "topic": req.topic,
+        "video_gen_provider": provider,
     }
 
 
@@ -85,6 +103,7 @@ async def get_episode(episode_id: str, db: AsyncSession = Depends(get_db)):
         "series": episode.series,
         "status": episode.status,
         "wan_fallback": episode.wan_fallback,
+        "video_gen_provider": episode.video_gen_provider,
         "script": episode.script_json,
         "sources": episode.sources_json,
         "seo": episode.seo_json,
@@ -145,6 +164,7 @@ async def resume_episode(episode_id: str, db: AsyncSession = Depends(get_db)):
         episode.topic,
         episode.episode_number or 1,
         episode.series,
+        episode.video_gen_provider or "",
     )
 
     return {"episode_id": episode_id, "status": "resumed"}
@@ -170,6 +190,7 @@ async def list_episodes(
                     "topic": e.topic,
                     "episode_number": e.episode_number,
                     "status": e.status,
+                    "video_gen_provider": e.video_gen_provider,
                     "created_at": e.created_at.isoformat() if e.created_at else None,
                 }
                 for e in episodes
