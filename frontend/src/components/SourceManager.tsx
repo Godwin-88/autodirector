@@ -23,7 +23,6 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function SourceManager() {
   const [sources, setSources] = useState<SourceDocument[]>([]);
-  const [totalSources, setTotalSources] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState('');
@@ -52,7 +51,6 @@ export function SourceManager() {
     try {
       const data = await sourcesApi.listSources(filterType || undefined);
       setSources(data.sources);
-      setTotalSources(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sources');
     } finally {

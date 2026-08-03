@@ -3,6 +3,7 @@ from core.database import get_async_session_local
 from core.redis_client import get_redis
 from core.config import get_settings
 from core.logging import get_logger
+from sqlalchemy import text
 
 router = APIRouter()
 logger = get_logger("health")
@@ -18,7 +19,7 @@ async def health_db():
     try:
         session_local = get_async_session_local()
         async with session_local() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         return {"status": "ok"}
     except Exception as e:
         logger.warning("health_db_failed", error=str(e))

@@ -1,6 +1,6 @@
 import type { Pillar, PlannedEpisode, Suggestion } from "../types/strategy";
 
-const BASE = "http://localhost:8000/api/v1/strategy";
+const BASE = "/api/v1/strategy";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {

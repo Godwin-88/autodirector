@@ -3,8 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { classifyPaste, ingestFromUrl } from "@/api/sources";
-import type { MemgraphConcept } from "@/types/sources";
+import { classifyPaste, ingestURL } from "@/api/sources";
 
 type ClassificationResult = {
   source_type: string;
@@ -15,7 +14,7 @@ type ClassificationResult = {
   url?: string;
 };
 
-export function UniversalPasteArea({ onConceptsFound }: { onConceptsFound?: (concepts: MemgraphConcept[]) => void }) {
+export function UniversalPasteArea() {
   const [input, setInput] = useState("");
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<ClassificationResult | null>(null);
@@ -34,7 +33,7 @@ export function UniversalPasteArea({ onConceptsFound }: { onConceptsFound?: (con
 
       // If it's a URL, auto-ingest
       if (res.action === "scrape_url" && res.url) {
-        const ingestRes = await ingestFromUrl(res.url);
+        const ingestRes = await ingestURL(res.url);
         console.log("Ingestion started:", ingestRes);
       }
     } catch (err) {

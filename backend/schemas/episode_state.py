@@ -19,6 +19,9 @@ class EpisodeState(TypedDict):
     wan_clip_path: Optional[str]
     final_video_path: Optional[str]
     youtube_id: Optional[str]
+    b2_manifest_url: Optional[str]
+    b2_video_url: Optional[str]
+    b2_thumbnail_url: Optional[str]
     wan_fallback: bool
     errors: List[str]
     current_phase: str

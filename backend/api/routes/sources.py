@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from pydantic import BaseModel
 
 from core.config import get_settings
-from core.database import get_async_session_local
+from core.database import get_async_session_local, get_db
 from services.ingestion.url_scraper import URLScraper
 from services.ingestion.pdf_extractor import PDFExtractor
 from services.ingestion.chunker import SemanticChunker
@@ -73,7 +73,7 @@ class MemgraphSearchRequest(BaseModel):
 
 # --- Dependency Injection ---
 
-async def get_ingest_pipeline(db=Depends(get_async_session_local)) -> IngestPipeline:
+async def get_ingest_pipeline(db=Depends(get_db)) -> IngestPipeline:
     scraper = URLScraper()
     extractor = PDFExtractor()
     chunker = SemanticChunker()
@@ -180,7 +180,7 @@ async def list_sources(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """List all ingested sources with optional filters."""
     from models.source_document import SourceDocument
@@ -227,7 +227,7 @@ async def list_sources(
 @router.get("/sources/{source_id}")
 async def get_source(
     source_id: str,
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """Get source detail including chunk count."""
     from models.source_document import SourceDocument
@@ -263,7 +263,7 @@ async def get_source(
 @router.delete("/sources/{source_id}")
 async def delete_source(
     source_id: str,
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """Delete a source document and all its chunks."""
     from models.source_document import SourceDocument
@@ -310,7 +310,7 @@ async def get_source_chunks(
     source_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, le=100),
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """List chunks for a source document (paginated)."""
     from models.source_chunk import SourceChunk
@@ -357,7 +357,7 @@ async def get_source_chunks(
 @router.post("/sources/search")
 async def search_sources(
     request: SourceSearchRequest,
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """Semantic search across all ingested sources."""
     embedder = ChunkEmbedder()
@@ -429,7 +429,7 @@ async def add_source_to_episode(
 @router.get("/episodes/{episode_id}/sources")
 async def list_episode_sources(
     episode_id: str,
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """List sources assigned to an episode."""
     from models.episode_source import EpisodeSource
@@ -472,7 +472,7 @@ async def list_episode_sources(
 async def remove_source_from_episode(
     episode_id: str,
     source_id: str,
-    db=Depends(get_async_session_local),
+    db=Depends(get_db),
 ):
     """Remove a source from an episode."""
     from models.episode_source import EpisodeSource

@@ -14,6 +14,9 @@ export interface EpisodeData {
   seo_metadata: SEOMetadata | null;
   youtube_id: string | null;
   video_path: string | null;
+  b2_manifest_url: string | null;
+  b2_video_url: string | null;
+  b2_thumbnail_url: string | null;
   created_at: string;
   updated_at: string;
 }

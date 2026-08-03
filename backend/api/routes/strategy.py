@@ -129,7 +129,7 @@ async def produce_episode(episode_id: str, req: ProduceRequest = None):
     from sqlalchemy import select
     from models.planned_episode import PlannedEpisode
 
-    async with get_async_session_local() as session:
+    async with get_async_session_local()() as session:
         # Get the planned episode
         result = await session.execute(
             select(PlannedEpisode).where(PlannedEpisode.id == episode_id)
@@ -137,6 +137,15 @@ async def produce_episode(episode_id: str, req: ProduceRequest = None):
         planned = result.scalar_one_or_none()
         if not planned:
             raise HTTPException(status_code=404, detail="Planned episode not found")
+
+        # Resolve the series from the parent pillar
+        from models.pillar import Pillar
+
+        pillar_result = await session.execute(
+            select(Pillar).where(Pillar.id == planned.pillar_id)
+        )
+        pillar = pillar_result.scalar_one_or_none()
+        series = pillar.series if pillar else "quantifaya"
 
         # Create the actual episode record
         episode = Episode(
@@ -157,7 +166,9 @@ async def produce_episode(episode_id: str, req: ProduceRequest = None):
         from workers.tasks import run_episode_graph
         run_episode_graph.delay(
             str(episode.id),
-            auto_approve=req.auto_approve if req else False,
+            planned.topic,
+            planned.sequence_number,
+            series,
         )
 
         return {
@@ -182,7 +193,7 @@ async def override_schedule(target_date: date, req: OverrideRequest):
     from core.database import get_async_session_local
     from sqlalchemy import select
 
-    async with get_async_session_local() as session:
+    async with get_async_session_local()() as session:
         # Check existing override
         result = await session.execute(
             select(ScheduleOverride).where(ScheduleOverride.target_date == target_date)

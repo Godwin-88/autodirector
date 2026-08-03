@@ -1,5 +1,3 @@
-import { Separator } from "@/components/ui/separator";
-
 export function Header() {
   return (
     <header className="border-b border-border bg-card">

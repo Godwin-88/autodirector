@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -34,8 +34,17 @@ class Settings(BaseSettings):
     playwright_enabled: bool = True
     embedding_batch_size: int = 32
 
-    class Config:
-        env_file = ".env"
+    # Backblaze B2
+    b2_key_id: str = ""
+    b2_application_key: str = ""
+    b2_bucket_name: str = "quantifaya"
+    b2_endpoint_url: str = "https://s3.us-east-005.backblazeb2.com"
+    b2_public_url_base: str = "https://f005.backblazeb2.com/file/quantifaya"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
 
     @property
     def database_url(self) -> str:

@@ -363,8 +363,70 @@ async def upload_youtube(state: EpisodeState) -> EpisodeState:
 
 
 async def mark_complete(state: EpisodeState) -> EpisodeState:
-    """Node 13: Mark episode as complete."""
+    """Node 13: Mark episode as complete.
+
+    Uploads all generated assets to Backblaze B2 and stores the
+    manifest/video/thumbnail URLs in the episodes table.
+    B2 upload failure does NOT fail the episode — local files still exist.
+    """
     logger.info("node:mark_complete", episode_id=state["episode_id"])
+
+    from services.delivery.b2_storage import B2StorageService
+    from core.database import get_async_session_local
+    from sqlalchemy import text
+
+    b2 = B2StorageService()
+
+    try:
+        manifest = await b2.upload_episode_assets(state["episode_id"])
+        b2_manifest_url = manifest.get("manifest_url", "")
+        b2_video_url = manifest.get("assets", {}).get("final_video", {}).get("url", "")
+        b2_thumbnail_url = manifest.get("assets", {}).get("thumbnail", {}).get("url", "")
+
+        # Update DB with B2 URLs
+        session_local = get_async_session_local()
+        async with session_local() as db:
+            await db.execute(
+                text(
+                    """
+                    UPDATE episodes
+                    SET b2_manifest_url = :manifest_url,
+                        b2_video_url = :video_url,
+                        b2_thumbnail_url = :thumb_url,
+                        status = 'delivered',
+                        completed_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "manifest_url": b2_manifest_url,
+                    "video_url": b2_video_url,
+                    "thumb_url": b2_thumbnail_url,
+                    "id": state["episode_id"],
+                },
+            )
+            await db.commit()
+
+        state["b2_manifest_url"] = b2_manifest_url
+        state["b2_video_url"] = b2_video_url
+        state["b2_thumbnail_url"] = b2_thumbnail_url
+        state["status"] = "delivered"
+        logger.info(
+            "b2_upload_success",
+            episode_id=state["episode_id"],
+            manifest_url=b2_manifest_url,
+        )
+
+    except Exception as e:
+        # B2 upload failure does NOT fail the episode
+        logger.error(
+            "b2_upload_failed",
+            error=str(e),
+            episode_id=state["episode_id"],
+        )
+        state["errors"].append(f"B2 upload failed: {str(e)}")
+        state["status"] = "delivered"
+
     state["current_phase"] = "delivered"
     return state
 

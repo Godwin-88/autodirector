@@ -1,7 +1,6 @@
 import type {
   EpisodeResponse,
   EpisodeListItem,
-  SSEEvent,
   StageUpdateEvent,
   ScriptChunkEvent,
   VideoReadyEvent,

@@ -8,6 +8,7 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { BeatEditor } from "@/components/BeatEditor";
 import { GraphSourcePanel } from "@/components/GraphSourcePanel";
 import { ArchitectureTab } from "@/components/ArchitectureTab";
+import MediaLibrary from "@/components/MediaLibrary";
 import { EpisodeList } from "@/components/EpisodeList";
 import { SourceManager, EpisodeSourcePanel } from "@/components/SourceManager";
 import { SuggestionPanel } from "@/components/SuggestionPanel";
@@ -87,10 +88,15 @@ export default function App() {
   const [stages, setStages] = useState<PipelineStage[]>(INITIAL_STAGES);
   const [scenes, setScenes] = useState<SceneData[]>([]);
   const [streamingText, setStreamingText] = useState<string | undefined>();
-  const [wanLoading, setWanLoading] = useState(false);
+  const [wanLoading] = useState(false);
   const [wanThumbnail, setWanThumbnail] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoReady, setVideoReady] = useState(false);
+  const [b2Urls, setB2Urls] = useState<{
+    manifest: string | null;
+    video: string | null;
+    thumbnail: string | null;
+  }>({ manifest: null, video: null, thumbnail: null });
   const [activeTab, setActiveTab] = useState("pipeline");
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
@@ -114,6 +120,7 @@ export default function App() {
     setWanThumbnail(null);
     setVideoUrl(null);
     setVideoReady(false);
+    setB2Urls({ manifest: null, video: null, thumbnail: null });
     setStages(INITIAL_STAGES);
 
     // Unsubscribe from previous SSE
@@ -124,6 +131,13 @@ export default function App() {
     try {
       const res = await getEpisode(id);
       const ep = res.data;
+
+      // Store B2 URLs for the episode detail section
+      setB2Urls({
+        manifest: ep.b2_manifest_url,
+        video: ep.b2_video_url,
+        thumbnail: ep.b2_thumbnail_url,
+      });
 
       // If already completed, show video
       if (ep.status === "completed" && ep.video_path) {
@@ -375,6 +389,7 @@ export default function App() {
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="sources">Sources</TabsTrigger>
                 <TabsTrigger value="strategy">Strategy</TabsTrigger>
+                <TabsTrigger value="media">Media Library</TabsTrigger>
                 <TabsTrigger value="architecture">Architecture</TabsTrigger>
               </TabsList>
 
@@ -407,6 +422,45 @@ export default function App() {
                       scenes={scenes}
                       streamingText={streamingText}
                     />
+                    {b2Urls.video && (
+                      <div className="rounded-lg border bg-card p-5">
+                        <h4 className="mb-3 font-semibold text-foreground">
+                          🗄️ Stored in Backblaze B2
+                        </h4>
+                        <div className="flex flex-col gap-2">
+                          {b2Urls.video && (
+                            <a
+                              href={b2Urls.video}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-primary hover:underline"
+                            >
+                              ▶ Final Video (B2 CDN) ↗
+                            </a>
+                          )}
+                          {b2Urls.thumbnail && (
+                            <a
+                              href={b2Urls.thumbnail}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-yellow-500 hover:underline"
+                            >
+                              🖼 Thumbnail (B2 CDN) ↗
+                            </a>
+                          )}
+                          {b2Urls.manifest && (
+                            <a
+                              href={b2Urls.manifest}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm text-cyan-500 hover:underline"
+                            >
+                              📋 Asset Manifest (JSON) ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-6">
                     <GraphSourcePanel
@@ -434,6 +488,10 @@ export default function App() {
                     <UniversalPasteArea />
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="media">
+                <MediaLibrary />
               </TabsContent>
 
               <TabsContent value="architecture">

@@ -38,7 +38,7 @@ class SuggestionEngine:
         if target_date is None:
             target_date = date.today()
 
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             # 1. Check schedule_overrides first
             override = await self._get_override(session, target_date)
             if override:
@@ -83,7 +83,7 @@ class SuggestionEngine:
 
     async def get_pillar_with_episodes(self, pillar_id: str) -> dict:
         """Get a pillar with all its planned episodes."""
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             pillar = await self._get_pillar(session, pillar_id)
             if not pillar:
                 return {"status": "not_found"}
@@ -123,7 +123,7 @@ class SuggestionEngine:
 
     async def get_all_pillars(self, series: str = "quantifaya") -> list[dict]:
         """Get all active pillars for a series."""
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             result = await session.execute(
                 select(Pillar)
                 .where(and_(Pillar.series == series, Pillar.active == True))
@@ -147,7 +147,7 @@ class SuggestionEngine:
 
     async def mark_skipped(self, planned_episode_id: str) -> dict:
         """Mark a planned episode as skipped."""
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             result = await session.execute(
                 select(PlannedEpisode).where(PlannedEpisode.id == planned_episode_id)
             )
@@ -161,7 +161,7 @@ class SuggestionEngine:
     async def reorder_pillar(self, pillar_id: str,
                               episode_ids: list[str]) -> dict:
         """Reorder episodes within a pillar. episode_ids is the new order."""
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             for i, ep_id in enumerate(episode_ids):
                 result = await session.execute(
                     select(PlannedEpisode).where(
@@ -180,7 +180,7 @@ class SuggestionEngine:
                                      notes: str = None) -> dict:
         """Add a custom episode to a pillar."""
         from uuid import uuid4
-        async with get_async_session_local() as session:
+        async with get_async_session_local()() as session:
             # Get next sequence number
             result = await session.execute(
                 select(PlannedEpisode)

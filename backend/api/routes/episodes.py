@@ -91,6 +91,9 @@ async def get_episode(episode_id: str, db: AsyncSession = Depends(get_db)):
         "wan_prompt": episode.wan_prompt,
         "output_path": episode.output_path,
         "youtube_id": episode.youtube_id,
+        "b2_manifest_url": episode.b2_manifest_url,
+        "b2_video_url": episode.b2_video_url,
+        "b2_thumbnail_url": episode.b2_thumbnail_url,
         "duration_secs": episode.duration_secs,
         "created_at": episode.created_at.isoformat() if episode.created_at else None,
         "completed_at": episode.completed_at.isoformat() if episode.completed_at else None,
@@ -158,16 +161,23 @@ async def list_episodes(
         select(Episode).order_by(Episode.created_at.desc()).offset(skip).limit(limit)
     )
     episodes = result.scalars().all()
-    return [
-        {
-            "id": str(e.id),
-            "topic": e.topic,
-            "episode_number": e.episode_number,
-            "status": e.status,
-            "created_at": e.created_at.isoformat() if e.created_at else None,
-        }
-        for e in episodes
-    ]
+    return {
+        "status": "ok",
+        "data": {
+            "episodes": [
+                {
+                    "id": str(e.id),
+                    "topic": e.topic,
+                    "episode_number": e.episode_number,
+                    "status": e.status,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in episodes
+            ]
+        },
+        "errors": [],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.delete("/{episode_id}")

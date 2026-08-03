@@ -5,6 +5,7 @@ from core.database import get_engine
 from core.redis_client import get_redis
 from core.logging import setup_logging, get_logger
 from core.config import get_settings
+from sqlalchemy import text
 
 # Setup logging on import
 setup_logging()
@@ -21,7 +22,7 @@ async def lifespan(app: FastAPI):
     try:
         engine = get_engine()
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         logger.info("database_connected")
     except Exception as e:
         logger.warning("database_connection_failed", error=str(e))
@@ -40,9 +41,21 @@ async def lifespan(app: FastAPI):
     await memgraph_client.connect()
     app.state.memgraph = memgraph_client
 
+    # Connect Backblaze B2 (optional — pipeline continues without it)
+    from services.delivery.b2_storage import B2StorageService
+    try:
+        b2_service = B2StorageService()
+        b2_service.ensure_bucket()
+        app.state.b2 = b2_service
+        logger.info("b2_ready", bucket=settings.b2_bucket_name)
+    except Exception as e:
+        logger.warning("b2_unavailable", error=str(e))
+        app.state.b2 = None
+
     logger.info("config", auto_approve=settings.auto_approve,
                 manim_workers=settings.manim_workers,
-                log_level=settings.log_level)
+                log_level=settings.log_level,
+                b2_bucket=settings.b2_bucket_name)
 
     yield
 
@@ -70,12 +83,13 @@ app.add_middleware(
 )
 
 # Include routers
-from api.routes import health, episodes, stream, sources, strategy
+from api.routes import health, episodes, stream, sources, strategy, media
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(episodes.router, prefix="/api/v1/episodes", tags=["episodes"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["stream"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(strategy.router, tags=["strategy"])
+app.include_router(media.router, prefix="/api/v1/media", tags=["media"])
 
 
 @app.get("/")
