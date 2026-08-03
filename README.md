@@ -20,6 +20,7 @@
 - [API Endpoints](#api-endpoints)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
+- [Deployment](#deployment)
 - [Running Tests](#running-tests)
 - [Pipeline Flow](#pipeline-flow)
 
@@ -449,7 +450,9 @@ All configuration via environment variables (see `.env.example`):
 | `WAN_API_KEY` | No | `""` | Wan/HappyHorse API key |
 | `POSTGRES_HOST` | No | `postgres` | PostgreSQL host |
 | `POSTGRES_PORT` | No | `5432` | PostgreSQL port |
-| `REDIS_URL` | No | `redis://redis:6379/0` | Redis connection URL |
+| `REDIS_URL` | No | `redis://redis:6379/0` | Redis connection URL (Celery broker) |
+| `MEMGRAPH_ENABLED` | No | `false` | Enable Memgraph/Neo4j knowledge graph |
+| `MEMGRAPH_URI` | No | `bolt://memgraph:7687` | Memgraph connection URI |
 | `AUTO_APPROVE` | No | `false` | Skip human review gate |
 | `MANIM_WORKERS` | No | `4` | Parallel Manim render count |
 | `MANIM_QUALITY` | No | `h` | Manim quality (h/m/l) |
@@ -503,10 +506,101 @@ INPUT: "Heston Stochastic Volatility Model"
   │  4.1 Generate 1280×720 thumbnail (PIL)                 │
   │  4.2 Upload to YouTube (unlisted) with metadata        │
   │  4.3 Set thumbnail via YouTube API                     │
-  │  4.4 Log youtube_id in PostgreSQL                      │
-  └─────────────────────────────────────────────────────────┘
+   │  4.4 Log youtube_id in PostgreSQL                      │
+   └─────────────────────────────────────────────────────────┘
 
 OUTPUT: https://youtube.com/watch?v={youtube_id}
+```
+
+---
+
+## Deployment
+
+The project ships with two deployment paths: **Docker Compose (local/self-hosted)** and **managed cloud (Render + Vercel)**. The graph database (Memgraph) is optional and disabled by default for minimal deployments.
+
+### Environment Variables
+
+All configuration is via environment variables. The app boots with safe defaults even when nothing is set, so you only provide what you need.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `QWEN_API_KEY` | Yes | `""` | Qwen Cloud API key (for LLM completion) |
+| `WAN_API_KEY` | No | `""` | Wan/HappyHorse API key for video generation |
+| `POSTGRES_HOST` | No | `postgres` | PostgreSQL host (use Supabase/Render/ApsaraDB) |
+| `POSTGRES_PORT` | No | `5432` | PostgreSQL port |
+| `POSTGRES_DB` | No | `autodirector` | Database name |
+| `POSTGRES_USER` | No | `autodirector` | Database user |
+| `POSTGRES_PASSWORD` | No | `changeme` | Database password |
+| `REDIS_URL` | No | `redis://redis:6379/0` | Redis connection URL (Celery broker); use Upstash/Render Redis URL |
+| `MEMGRAPH_ENABLED` | No | `false` | Enable the Memgraph/Neo4j knowledge graph (disable for minimal deploy) |
+| `AUTO_APPROVE` | No | `false` | Skip human review gate |
+| `MANIM_WORKERS` | No | `4` | Parallel Manim render count |
+
+### Minimal Deployment (Render + Vercel)
+
+This is the **recommended open-source deployment**. Uses managed Postgres + Redis (no self-hosted DB containers) and disables the Memgraph graph layer.
+
+#### Infrastructure
+
+- **Backend API + Celery Worker** → [Render](https://render.com) (managed Python services)
+- **Frontend** → [Vercel](https://vercel.com) (React/Vite static hosting)
+- **Database** → Render managed PostgreSQL (or Supabase/ApsaraDB via env var override)
+- **Queue** → Render managed Redis (or Upstash via `REDIS_URL`)
+- **Graph DB** → Disabled (`MEMGRAPH_ENABLED=false`) — set to `true` and provide `MEMGRAPH_URI` if you add managed Neo4j/Aura
+
+#### Files
+
+- `render.yaml` — Render IaC definition (web service + worker + databases + redis)
+- `vercel.json` — Vercel routing config (rewrites `/api/*` to the Render backend)
+- `backend/Dockerfile` — Production Dockerfile (no `--reload`)
+- `backend/init.sh` — Entrypoint script that runs `alembic upgrade head` before starting web/worker
+
+#### Steps
+
+1. **Add your secrets to Render:**
+   - `QWEN_API_KEY` (required)
+   - `WAN_API_KEY` (optional)
+
+2. **Deploy the backend:**
+   ```bash
+   # Option A: Render CLI
+   render deploy --service quantifaya-api
+
+   # Option B: Push to Render via CLI or connect GitHub repo + use render.yaml
+   ```
+
+   The `render.yaml` defines:
+   - `quantifaya-api` (web service, runs `init.sh web`)
+   - `quantifaya-worker` (background worker, runs `init.sh worker`)
+   - `quantifaya-db` (PostgreSQL 16)
+   - `quantifaya-redis` (managed Redis)
+
+3. **Deploy the frontend:**
+   ```bash
+   vercel --cwd frontend
+   ```
+
+   The `vercel.json` rewrites `/api/*` to `https://quantifaya-api.onrender.com/api/*` so the frontend talks to the Render backend. Update that URL to match your Render service name.
+
+#### Required Secrets (Render Dashboard → Environment)
+
+| Secret | Description |
+|--------|-------------|
+| `QWEN_API_KEY` | Qwen Cloud API key (required) |
+| `WAN_API_KEY` | Wan API key (optional) |
+
+#### Replacing Managed Services
+
+To use Supabase, Upstash, or ApsaraDB instead of Render's built-in Postgres/Redis, set the connection env vars explicitly (`POSTGRES_HOST`, `REDIS_URL`, etc.) and remove the `fromDatabase`/`fromService` references in `render.yaml`.
+
+### Local Docker Compose
+
+For local development with all components (including Memgraph):
+
+```bash
+docker compose up -d postgres redis memgraph
+cd backend && alembic upgrade head
+uvicorn main:app --reload --port 8000
 ```
 
 ---

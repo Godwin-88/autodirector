@@ -3,7 +3,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    qwen_api_key: str
+    qwen_api_key: str = ""
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     wan_api_key: str = ""
     wan_api_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "autodirector"
     postgres_user: str = "autodirector"
-    postgres_password: str
+    postgres_password: str = "changeme"
     redis_url: str = "redis://redis:6379/0"
     youtube_client_secrets_file: str = "./secrets/youtube_client_secrets.json"
     youtube_channel_id: str = ""

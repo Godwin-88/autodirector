@@ -1,0 +1,120 @@
+# Render Infrastructure as Code
+# https://render.com/docs/yaml
+#
+# Deploys the minimal open-source configuration:
+#   - Web Service (FastAPI API)  — handles /api requests
+#   - Background Worker (Celery) — processes async jobs (video generation etc.)
+#   - PostgreSQL (managed by Render, Supabase-compatible)
+#   - Redis (managed by Render)
+#
+# Required secrets (add via Render dashboard → Environment → Secrets):
+#   QWEN_API_KEY       — Alibaba/Qwen API key for LLM completion
+#   WAN_API_KEY        — Wan API key for video generation (optional)
+#   POSTGRES_PASSWORD  — set by Render automatically if using the PostgreSQL plugin
+#
+# Optional: replace managed Postgres/Redis with Supabase/ApsaraDB/Upstash by
+# setting the connection string env vars explicitly.
+services:
+  # ── API Web Service ────────────────────────────────────────────────
+  - type: web
+    name: quantifaya-api
+    runtime: python
+    region: oregon
+    plan: starter
+    build:
+      dockerfilePath: backend/Dockerfile
+      context: .
+    startCommand: bash backend/init.sh web
+    healthCheckPath: /health
+    disk:
+      name: output
+      mountPath: /app/output
+      sizeGB: 10
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: MEMGRAPH_ENABLED
+        value: "false"
+      - key: POSTGRES_HOST
+        fromDatabase: quantifaya-db
+        property: host
+      - key: POSTGRES_PORT
+        fromDatabase: quantifaya-db
+        property: port
+      - key: POSTGRES_DB
+        fromDatabase: quantifaya-db
+        property: database
+      - key: POSTGRES_USER
+        fromDatabase: quantifaya-db
+        property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase: quantifaya-db
+        property: password
+      - key: REDIS_URL
+        fromService: quantifaya-redis
+        property: connectionString
+      - key: QWEN_API_KEY
+        fromSecret: QWEN_API_KEY
+      - key: WAN_API_KEY
+        fromSecret: WAN_API_KEY
+      - key: B2_BUCKET_NAME
+        value: quantifaya-uploads
+      - key: B2_APPLICATION_KEY
+        value: ""
+      - key: B2_KEY_ID
+        value: ""
+
+  # ── Celery Background Worker ────────────────────────────────────────
+  - type: worker
+    name: quantifaya-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    build:
+      dockerfilePath: backend/Dockerfile
+      context: .
+    startCommand: bash backend/init.sh worker
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: MEMGRAPH_ENABLED
+        value: "false"
+      - key: POSTGRES_HOST
+        fromDatabase: quantifaya-db
+        property: host
+      - key: POSTGRES_PORT
+        fromDatabase: quantifaya-db
+        property: port
+      - key: POSTGRES_DB
+        fromDatabase: quantifaya-db
+        property: database
+      - key: POSTGRES_USER
+        fromDatabase: quantifaya-db
+        property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase: quantifaya-db
+        property: password
+      - key: REDIS_URL
+        fromService: quantifaya-redis
+        property: connectionString
+      - key: QWEN_API_KEY
+        fromSecret: QWEN_API_KEY
+      - key: WAN_API_KEY
+        fromSecret: WAN_API_KEY
+    disk:
+      name: output
+      mountPath: /app/output
+      sizeGB: 10
+
+databases:
+  - name: quantifaya-db
+    region: oregon
+    plan: starter
+    postgresVersion: "16"
+
+services:
+  - type: redis
+    name: quantifaya-redis
+    region: oregon
+    plan: starter
+    primary: true

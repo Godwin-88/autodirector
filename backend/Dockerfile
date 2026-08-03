@@ -19,4 +19,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Install playwright browser binaries (needed for web scraping)
+RUN playwright install --with-deps chromium 2>/dev/null || true
+
+# Default command (overridden by Render's startCommand)
+# Web: uvicorn main:app --host 0.0.0.0 --port $PORT
+# Worker: celery -A workers.celery_app worker --loglevel=info --concurrency=4
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
